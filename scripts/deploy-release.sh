@@ -28,6 +28,9 @@ printf '%s=%s\n' "$tag_key" "$image_tag" >> "$candidate"
 compose=(docker compose --env-file .env.docker --env-file "$candidate" --profile apps)
 "${compose[@]}" config --quiet
 "${compose[@]}" pull "${services[@]}"
+if [[ "$component" == backend ]]; then
+  "${compose[@]}" run --rm --no-deps catalog-seed
+fi
 if [[ "$component" == ai ]]; then
   # Stop the old executor before migrating; a failed migration requires operator action.
   "${compose[@]}" stop ai-service

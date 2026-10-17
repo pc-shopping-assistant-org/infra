@@ -17,7 +17,7 @@ tests/                      Kiểm tra offline cấu hình và release
 | --- | --- |
 | Mặc định | PostgreSQL, Redis, RabbitMQ, Kafka, Debezium Connect, Elasticsearch, LGTM |
 | `apps` | Thêm Eureka, Gateway, 8 business services gồm sync, AI và Next.js |
-| `setup` | Job đăng ký/cập nhật connector, chạy khi catalog đã migrate |
+| `setup` | Job seed catalog và đăng ký/cập nhật connector |
 
 ## Global env — không đóng vào image
 
@@ -101,7 +101,7 @@ Kafka retention mặc định 7 ngày, không phải backup.
 ## 4. Deploy đầu tiên bằng GHCR
 
 Điền phần apps trong `.env.docker`: RSA keys bền vững, DB URL nội bộ
-`postgres:5432/ai_db`, catalog UUID mapping thật và provider credentials.
+`postgres:5432/ai_db` và provider credentials.
 Password trong URL cần percent-encode. RSA keys là Base64 DER PKCS#8/X.509,
 không PEM markers. Không generate key tạm cho deployed identity.
 
@@ -112,6 +112,15 @@ không PEM markers. Không generate key tạm cho deployed identity.
 ./compose.sh --profile apps ps
 ./compose.sh --profile setup run --rm register-connector
 ```
+
+Setup pull image, gọi `seed-prod` trong image catalog để migrate + UPSERT taxonomy,
+rồi khởi động apps. Seed chỉ gồm 12 loại linh kiện/phụ kiện, không có sản phẩm demo.
+Chạy lại giữ UUID, tên, trạng thái, hierarchy và mô tả đã có. AI đọc `hardwareType`
+trực tiếp từ snapshot catalog; không cần điền category UUID vào env.
+
+Chạy seed riêng: `./scripts/seed-prod.sh`. Job chỉ cần PostgreSQL, không khởi động
+web/Kafka listeners của catalog. Backend release cũng chạy seed trước khi restart
+services. Image backend phải chứa lệnh `--seed-prod` trước khi dùng setup mới.
 
 Không build source trên server. AI image chứa migrations; `ai-migrate` phải thành
 công trước AI. Các image phải được publish từ release trước; `release` là tag

@@ -25,7 +25,7 @@ jobs:
       - name: Validate profiles and release behavior without starting containers
         run: |
           python3 -m unittest discover -s tests -v
-          bash -n compose.sh scripts/deploy.sh scripts/deploy-release.sh config/postgres/init-databases.sh
+          bash -n compose.sh scripts/deploy.sh scripts/seed-prod.sh scripts/deploy-release.sh config/postgres/init-databases.sh
 
   deploy:
     needs: verify

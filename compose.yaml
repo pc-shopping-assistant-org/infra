@@ -248,6 +248,21 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
 
+  catalog-seed:
+    profiles: [setup]
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-catalog-service:${BACKEND_IMAGE_TAG:-release}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalog_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    command: ["--seed-prod"]
+    healthcheck:
+      disable: true
+
   catalog-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-catalog-service:${BACKEND_IMAGE_TAG:-release}

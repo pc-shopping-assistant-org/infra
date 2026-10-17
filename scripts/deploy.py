@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = [str(ROOT / "compose.sh"), "--profile", "apps"]
+DEPLOY_WAIT_SECONDS = 300
 
 
 def deployment_errors(services):
@@ -21,12 +22,6 @@ def deployment_errors(services):
     url = urlsplit(ai.get("AI_DATABASE_URL") or "")
     if url.scheme != "postgresql+psycopg" or url.hostname != "postgres" or url.path != "/ai_db":
         errors.append("Set AI_DATABASE_URL to postgresql+psycopg://...@postgres:5432/ai_db")
-    try:
-        mapping = json.loads(ai.get("AI_HARDWARE_CATALOG_MAPPING") or "null")
-    except json.JSONDecodeError:
-        mapping = None
-    if not isinstance(mapping, dict) or not mapping.get("categories"):
-        errors.append("Set AI_HARDWARE_CATALOG_MAPPING with real category UUIDs")
     provider = ai["AI_PROVIDER"]
     provider_keys = {"openai": "AI_OPENAI_API_KEY", "gemini": "AI_GEMINI_API_KEY"}
     if provider in provider_keys:
@@ -40,6 +35,14 @@ def deployment_errors(services):
     return errors
 
 
+def bootstrap():
+    subprocess.run([*COMPOSE, "pull"], cwd=ROOT, check=True)
+    subprocess.run([str(ROOT / "scripts" / "seed-prod.sh")], cwd=ROOT, check=True)
+    subprocess.run([*COMPOSE, "up", "-d", "--wait", "--wait-timeout", str(DEPLOY_WAIT_SECONDS)],
+                   cwd=ROOT, check=True)
+    print("Containers started; verify health, then register the catalog connector")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Validate only; no pull/start")
@@ -50,14 +53,13 @@ def main():
     )
     if result.returncode:
         raise SystemExit("Compose configuration failed; fill infra/.env.docker then run ./compose.sh config --quiet")
-    errors = deployment_errors(json.loads(result.stdout)["services"])
+    services = json.loads(result.stdout)["services"]
+    errors = deployment_errors(services)
     if errors:
         raise SystemExit("\n".join(errors))
     print("Application deployment configuration OK (no secrets printed)")
     if not args.check:
-        subprocess.run([*COMPOSE, "pull"], cwd=ROOT, check=True)
-        subprocess.run([*COMPOSE, "up", "-d"], cwd=ROOT, check=True)
-        print("Containers started; verify health, then register the catalog connector")
+        bootstrap()
 
 
 if __name__ == "__main__":

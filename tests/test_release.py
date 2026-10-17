@@ -65,8 +65,15 @@ class ReleaseDelivery(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = (self.root / "calls").read_text()
         self.assertIn("sync-service", calls)
+        self.assertLess(calls.index("run --rm --no-deps catalog-seed"), calls.index("up -d"))
         self.assertNotIn("web-frontend", calls)
         self.assertNotIn("ai-service", calls)
+
+    def test_failed_backend_seed_does_not_publish_tags_or_restart_applications(self):
+        result = self.release("backend", fail_on="run")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("up -d", (self.root / "calls").read_text())
+        self.assertEqual((self.root / ".release.env").read_text(), "AI_IMAGE_TAG=old-ai\nWEB_IMAGE_TAG=old-web\n")
 
     def test_invalid_targets_are_rejected_before_docker_runs(self):
         self.assertNotEqual(self.release("unknown").returncode, 0)

@@ -82,6 +82,14 @@ class ComposeContracts(unittest.TestCase):
         self.assertNotIn("database.password", connector)
         self.assertEqual(len(connector["table.include.list"].split(",")), 5)
 
+    def test_catalog_seed_is_an_explicit_database_only_setup_job(self):
+        seed = self.config("setup")["services"]["catalog-seed"]
+        self.assertEqual(seed["command"], ["--seed-prod"])
+        self.assertEqual(set(seed["depends_on"]), {"postgres"})
+        self.assertEqual(seed["restart"], "no")
+        self.assertTrue(seed["healthcheck"]["disable"])
+        self.assertNotIn("JWT_PRIVATE_KEY", seed["environment"])
+
     def test_credentials_are_required_and_authentication_is_enabled(self):
         config = self.config()["services"]
         self.assertEqual(config["elasticsearch"]["environment"]["xpack.security.enabled"], "true")
