@@ -1,0 +1,49 @@
+{
+  "uid": "pcshop-ai",
+  "title": "PC Shopping - AI Runs",
+  "tags": ["pcshop", "ai"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": {"from": "now-30m", "to": "now"},
+  "refresh": "10s",
+  "templating": {
+    "list": [{
+      "name": "trace_id",
+      "label": "Trace ID (or .* for all)",
+      "type": "textbox",
+      "query": ".*",
+      "current": {"text": ".*", "value": ".*"}
+    }]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "Run / step logs",
+      "description": "Paste data.trace_id from a turn response above. Each step emits start/end with duration and outcome; no prompts or tool payloads.",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 14},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{
+        "refId": "A",
+        "expr": "{service_name=\"ai-service\"} | trace_id=~\"${trace_id:raw}\"",
+        "queryType": "range"
+      }],
+      "options": {"showTime": true, "showLabels": true, "sortOrder": "Descending", "wrapLogMessage": true}
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "AI execution traces (open a trace for step waterfall)",
+      "gridPos": {"x": 0, "y": 14, "w": 24, "h": 10},
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "targets": [{
+        "refId": "A",
+        "queryType": "traceql",
+        "query": "{ resource.service.name = \"ai-service\" }",
+        "limit": 20,
+        "tableType": "traces"
+      }]
+    }
+  ]
+}

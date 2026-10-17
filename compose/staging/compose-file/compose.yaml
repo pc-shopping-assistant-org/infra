@@ -1,0 +1,32 @@
+name: pc-shopping-assistant-staging
+
+# Local staging is intentionally database-only. Backend and frontend run on
+# the host and connect to PostgreSQL through the published localhost port.
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-18.3-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ecm_db}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    stop_grace_period: 60s
+
+volumes:
+  postgres_staging_data:
+    # The v2 suffix intentionally avoids attaching a pre-canonical volume
+    # created with the legacy schema. The old volume remains untouched for a
+    # manual backup/data migration decision.
+    name: ${POSTGRES_VOLUME_NAME:-pc-shopping-assistant-staging-postgres-v2}

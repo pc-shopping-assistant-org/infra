@@ -1,0 +1,431 @@
+name: pcshop-infra
+
+x-service: &service
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-app: &app
+  <<: *service
+  profiles: [apps]
+
+x-java-env: &java-env
+  EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka/
+  EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+  JWT_JWKS_URI: http://identity-service:8081/.well-known/jwks.json
+  JWT_SECURITY_ISSUER: ${JWT_ISSUER:-http://identity-service}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+
+x-db-env: &db-env
+  <<: *java-env
+  SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+  SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+
+x-kafka-env: &kafka-env
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+x-rabbit-env: &rabbit-env
+  SPRING_RABBITMQ_HOST: rabbitmq
+  SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-pcshop}
+  SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+
+x-redis-env: &redis-env
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+
+x-search-env: &search-env
+  SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
+  SPRING_ELASTICSEARCH_USERNAME: elastic
+  SPRING_ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD}
+
+x-ai-env: &ai-env
+  AI_DATABASE_URL: ${AI_DATABASE_URL:-}
+  AI_BACKEND_API_URL: ${AI_BACKEND_API_URL:-http://catalog-service:8082}
+  AI_JWT_JWKS_URL: http://identity-service:8081/.well-known/jwks.json
+  AI_JWT_ISSUER: ${JWT_ISSUER:-http://identity-service}
+  AI_JWT_AUDIENCE: pc-shopping-api
+  AI_OTLP_ENDPOINT: http://lgtm:4318
+  AI_RETRIEVAL_BACKEND: backend
+  AI_HARDWARE_CATALOG_MAPPING: ${AI_HARDWARE_CATALOG_MAPPING:-}
+  AI_PROVIDER: ${AI_PROVIDER:-openai}
+  AI_MODEL_NAME: ${AI_MODEL_NAME:-}
+  AI_OPENAI_API_KEY: ${AI_OPENAI_API_KEY:-}
+  AI_GEMINI_API_KEY: ${AI_GEMINI_API_KEY:-}
+  AI_QWEN_BASE_URL: ${AI_QWEN_BASE_URL:-http://model-server:8001/v1}
+  AI_QWEN_MODEL_NAME: ${AI_QWEN_MODEL_NAME:-Qwen/Qwen3-8B}
+  AI_QWEN_API_KEY: ${AI_QWEN_API_KEY:-}
+
+services:
+  postgres:
+    <<: *service
+    image: postgres:18.3-alpine
+    command: [postgres, -c, wal_level=logical]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_MULTIPLE_DATABASES: identity_db,catalog_db,order_db,payment_db,promotion_db,search_db,media_db,ai_db
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./config/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    <<: *service
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    command: [/bin/sh, -ec, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    <<: *service
+    image: rabbitmq:4.3.6-management-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pcshop}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    <<: *service
+    image: apache/kafka:4.3.1
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-fBTMcTq2Rx--FtWWppGltw}
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: controller,broker
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-127.0.0.1}:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:SASL_PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      # External connections require auth; encryption is supplied by SSH/private transport.
+      KAFKA_LISTENER_NAME_EXTERNAL_PLAIN_SASL_JAAS_CONFIG: >-
+        org.apache.kafka.common.security.plain.PlainLoginModule required
+        username="pcshop" password="${KAFKA_PASSWORD:?Set KAFKA_PASSWORD}"
+        user_pcshop="${KAFKA_PASSWORD:?Set KAFKA_PASSWORD}";
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_RETENTION_HOURS:-168}
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: [CMD-SHELL, '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1']
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  elasticsearch:
+    <<: *service
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD}
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: [CMD-SHELL, 'curl -fs -u "elastic:$$ELASTIC_PASSWORD" http://localhost:9200/_cluster/health >/dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  kafka-connect:
+    <<: *service
+    image: quay.io/debezium/connect:3.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: pcshop-connect
+      CONFIG_STORAGE_TOPIC: pcshop_connect_configs
+      OFFSET_STORAGE_TOPIC: pcshop_connect_offsets
+      STATUS_STORAGE_TOPIC: pcshop_connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+    ports:
+      - "127.0.0.1:18083:8083"
+
+  register-connector:
+    image: python:3.12-slim-bookworm
+    profiles: [setup]
+    restart: "no"
+    depends_on:
+      kafka-connect:
+        condition: service_started
+    environment:
+      CONNECT_URL: http://kafka-connect:8083
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - ./config/debezium/catalog-connector.json:/config/catalog-connector.json:ro
+      - ./scripts/register_connector.py:/scripts/register_connector.py:ro
+    command: [python, /scripts/register_connector.py]
+
+  lgtm:
+    <<: *service
+    image: grafana/otel-lgtm:0.35.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3300}:3000"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:4317:4317"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:4318:4318"
+    volumes:
+      - lgtm-data:/data
+      - ./config/grafana/provisioning/pcshop-dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/pcshop-dashboards.yaml:ro
+      - ./config/grafana/dashboards:/var/lib/pcshop-dashboards:ro
+
+  discovery-server:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-discovery-server:${BACKEND_IMAGE_TAG:-release}
+    environment:
+      SERVER_PORT: "8761"
+
+  identity-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-identity-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *redis-env]
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/identity_db
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      JWT_KEY_ID: ${JWT_KEY_ID:-identity-key-1}
+      JWT_ISSUER: ${JWT_ISSUER:-http://identity-service}
+      JWT_ALLOW_DEV_KEY_GENERATION: "false"
+      SERVER_PORT: "8081"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+
+  catalog-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-catalog-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *kafka-env, *rabbit-env]
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalog_db
+      SERVER_PORT: "8082"
+
+  order-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-order-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *kafka-env, *rabbit-env]
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
+      SERVER_PORT: "8083"
+
+  payment-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-payment-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *kafka-env]
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/payment_db
+      SERVER_PORT: "8084"
+      VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
+      VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
+      VNPAY_RETURN_URL: ${VNPAY_RETURN_URL:-http://localhost:3000/vi/payment/vnpay-return}
+
+  promotion-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-promotion-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/promotion_db
+      SERVER_PORT: "8085"
+
+  search-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-search-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      <<: [*db-env, *search-env]
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/search_db
+      SERVER_PORT: "8086"
+
+  media-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-media-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *db-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/media_db
+      SERVER_PORT: "8087"
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+
+  sync-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-sync-service:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      <<: [*java-env, *kafka-env, *search-env]
+      SERVER_PORT: "8088"
+
+  api-gateway:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-api-gateway:${BACKEND_IMAGE_TAG:-release}
+    depends_on:
+      discovery-server:
+        condition: service_started
+      identity-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      <<: [*java-env, *redis-env]
+      AI_SERVICE_URL: http://ai-service:8000
+      SERVER_PORT: "8080"
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+
+  ai-migrate:
+    profiles: [apps]
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/ai-service:${AI_IMAGE_TAG:-release}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [default]
+    environment: *ai-env
+    entrypoint: [/bin/sh, -ec]
+    command: ["alembic upgrade head && python -m ai_service.bootstrap_stateful"]
+
+  ai-service:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/ai-service:${AI_IMAGE_TAG:-release}
+    depends_on:
+      ai-migrate:
+        condition: service_completed_successfully
+      catalog-service:
+        condition: service_started
+      identity-service:
+        condition: service_started
+    environment: *ai-env
+
+  web-frontend:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/web-frontend:${WEB_IMAGE_TAG:-release}
+    depends_on: [api-gateway, ai-service]
+    environment:
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://api-gateway:8080}
+      AI_API_URL: ${AI_API_URL:-http://ai-service:8000/api/v1}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+
+networks:
+  default:
+    name: ${INFRA_NETWORK:-pcshop-infra}
+
+volumes:
+  postgres-data:
+    name: ${POSTGRES_VOLUME_NAME:-pcshop-infra-postgres}
+  redis-data:
+    name: ${REDIS_VOLUME_NAME:-pcshop-infra-redis}
+  rabbitmq-data:
+    name: ${RABBITMQ_VOLUME_NAME:-pcshop-infra-rabbitmq}
+  kafka-data:
+    name: ${KAFKA_VOLUME_NAME:-pcshop-infra-kafka}
+  elasticsearch-data:
+    name: ${ELASTICSEARCH_VOLUME_NAME:-pcshop-infra-elasticsearch}
+  lgtm-data:
+    name: ${LGTM_VOLUME_NAME:-pcshop-infra-lgtm}
