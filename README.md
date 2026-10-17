@@ -112,13 +112,14 @@ dev này không phải cấu hình production an toàn.
 ```sh
 # Package private: docker login ghcr.io bằng PAT có read:packages.
 ./scripts/deploy.sh --check
-./scripts/deploy.sh
+./scripts/deploy-release.sh 1.0.0
 ./compose.sh --profile apps ps
 ./compose.sh --profile setup run --rm register-connector
 ```
 
-Setup pull image, gọi `seed-prod` trong image catalog để migrate + UPSERT taxonomy,
-rồi khởi động apps. Seed chỉ gồm 12 loại linh kiện/phụ kiện, không có sản phẩm demo.
+Setup kiểm tra image version trên registry, pull, dựng dependencies, gọi `seed-prod`
+để migrate + UPSERT taxonomy, rồi chạy backend, migrate AI và chạy AI/FE.
+Seed chỉ gồm 12 loại linh kiện/phụ kiện, không có sản phẩm demo.
 Chạy lại giữ UUID, tên, trạng thái, hierarchy và mô tả đã có. AI đọc `hardwareType`
 trực tiếp từ snapshot catalog; không cần điền category UUID vào env.
 
@@ -133,11 +134,13 @@ khi chạy infra release.
 ## 5. GitHub CI/CD release
 
 Cả backend, ai-service, web-frontend và infra đều test trên push/PR/merge queue.
-Nhánh `release` của app **chỉ build/publish GHCR**, không SSH hoặc deploy.
-Nhánh `release` của infra **mới deploy**. Main, tag và PR không deploy.
-App image có tag `release` và `sha-<full commit>`.
+Nhánh `release/vX.Y.Z` của app **chỉ build/publish GHCR**, không SSH hoặc deploy.
+Nhánh cùng tên của infra **mới deploy**. Main, tag và PR không deploy.
+Ví dụ app `release/v1.0.0` publish `:1.0.0` + `:sha-<full commit>`;
+infra `release/v1.0.0` chọn `:1.0.0` cho cả BE/AI/FE. Cũng hỗ trợ `v1.1.0-rc.1`.
 
-Chỉ repo **infra** cần GitHub Environment **release**, cho phép branch `release`:
+Chỉ repo **infra** cần GitHub Environment **release**. Cấu hình deployment branch
+rule cho phép `release/*` (thay rule cũ chỉ cho phép `release`):
 
 | Loại | Tên | Giá trị |
 | --- | --- | --- |
@@ -160,16 +163,27 @@ GITHUB_TOKEN, không đưa token đó vào container.
 | web-frontend | Test + publish FE image; không deploy |
 | infra | Upload config, pull image, dependencies → seed → backend → stop AI → migrate → AI/FE |
 
-Đợi tất cả app builds thành công rồi mới push/dispatch infra `release`. Mặc định
-deploy tag `release` mới nhất; tag này mutable, không phải bản cố định. Muốn pin
-bản cụ thể, manual dispatch trên branch `release` với ba inputs
-`backend_image_tag`, `ai_image_tag`, `web_image_tag` là `sha-<full commit>` tương ứng.
-Push infra release luôn chọn lại tag `release`, thay các override cũ.
+Đợi tất cả app builds thành công rồi mới push/dispatch nhánh infra cùng version.
+Không fallback `latest`/`release`. Dispatch cho phép chọn version riêng qua
+`backend_image_tag`, `ai_image_tag`, `web_image_tag`: `X.Y.Z`, `X.Y.Z-rc.N` hoặc
+`sha-<full commit>`. Để trống lấy version từ nhánh infra, không từ env cũ.
+
+Không sửa code trên branch version đã phát hành; dùng `release/v1.0.1` cho bản sửa.
+GHCR tags chưa được khóa ghi đè tự động (ISSUE-143); đây là quy ước release hiện tại,
+không phải bảo đảm image bất biến ở registry.
 
 CD dùng lock server, không cancel release đang chạy, bỏ qua run không còn là
 branch head; đợi health rồi ghi ba tag vào `.release.env`. Không sửa `.env.docker`,
 không xóa volumes hoặc động đến Caddy global. Server cần `.env.docker` sẵn có.
-Chạy cùng luồng thủ công: `./scripts/deploy-release.sh [BACKEND_TAG AI_TAG WEB_TAG]`.
+Chạy thủ công: `./scripts/deploy-release.sh 1.0.0`.
+Chọn riêng từng app: `./scripts/deploy-release.sh 1.0.0 1.0.1 1.0.0`.
+
+Script kiểm tra manifest đủ 12 image app rồi pull trước khi đổi container. Thiếu
+version, lỗi auth/network hoặc pull lỗi thì dừng, không tự đổi sang version khác.
+Chỉ sau khi deploy healthy mới xóa image ID cũ của app vừa thay thế trên server.
+Không `--force`, không prune toàn server, không xóa GHCR/volumes. Image còn được
+container tham chiếu sẽ giữ lại; cleanup lỗi chỉ cảnh báo, không hủy deploy thành công.
+Rollback cần pull lại image cũ từ GHCR; migration vẫn phải tương thích.
 
 Migration/health lỗi thì job fail, không ghi nhận tag thành công. Không tự rollback
 schema: kiểm tra migration và phục hồi/cập nhật có chủ đích. Một deploy có thể đã

@@ -7,16 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       backend_image_tag:
-        description: Backend tag (release or sha-FULL_COMMIT)
-        default: release
+        description: Backend version or sha-FULL_COMMIT (blank uses branch version)
         type: string
       ai_image_tag:
-        description: AI tag (release or sha-FULL_COMMIT)
-        default: release
+        description: AI version or sha-FULL_COMMIT (blank uses branch version)
         type: string
       web_image_tag:
-        description: Web tag (release or sha-FULL_COMMIT)
-        default: release
+        description: Web version or sha-FULL_COMMIT (blank uses branch version)
         type: string
 
 permissions:
@@ -24,7 +21,7 @@ permissions:
 
 concurrency:
   group: infra-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/release' }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
 
 jobs:
   verify:
@@ -43,7 +40,7 @@ jobs:
   deploy:
     needs: verify
     if: >-
-      github.ref == 'refs/heads/release' &&
+      startsWith(github.ref, 'refs/heads/release/') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -56,9 +53,9 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
       INFRA_REVISION: ${{ github.sha }}
-      BACKEND_IMAGE_TAG: ${{ inputs.backend_image_tag || 'release' }}
-      AI_IMAGE_TAG: ${{ inputs.ai_image_tag || 'release' }}
-      WEB_IMAGE_TAG: ${{ inputs.web_image_tag || 'release' }}
+      BACKEND_IMAGE_TAG: ${{ inputs.backend_image_tag }}
+      AI_IMAGE_TAG: ${{ inputs.ai_image_tag }}
+      WEB_IMAGE_TAG: ${{ inputs.web_image_tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +63,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          latest_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/release" --jq .sha)
+          version=${GITHUB_REF_NAME#release/v}
+          version_pattern='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?'
+          [[ "$GITHUB_REF_NAME" == release/v* && "$version" =~ ^${version_pattern}$ ]] || { echo 'Use release/vX.Y.Z or release/vX.Y.Z-rc.N' >&2; exit 2; }
+          BACKEND_IMAGE_TAG=${BACKEND_IMAGE_TAG:-$version}
+          AI_IMAGE_TAG=${AI_IMAGE_TAG:-$version}
+          WEB_IMAGE_TAG=${WEB_IMAGE_TAG:-$version}
+          latest_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
           if [[ "$latest_sha" != "$GITHUB_SHA" ]]; then
             echo 'Skip superseded infra release; branch head has changed'
             exit 0
@@ -79,7 +82,7 @@ jobs:
           [[ "$DEPLOY_PATH" =~ ^/[a-zA-Z0-9_./-]+$ && "$DEPLOY_PATH" != / ]]
           [[ "$SSH_PORT" =~ ^[0-9]+$ ]]
           for tag in "$BACKEND_IMAGE_TAG" "$AI_IMAGE_TAG" "$WEB_IMAGE_TAG"; do
-            [[ "$tag" == release || "$tag" =~ ^sha-[0-9a-f]{40}$ ]]
+            [[ "$tag" =~ ^${version_pattern}$ || "$tag" =~ ^sha-[0-9a-f]{40}$ ]]
           done
           key_file="$RUNNER_TEMP/gearpc-deploy-key"
           hosts_file="$RUNNER_TEMP/gearpc-known-hosts"
