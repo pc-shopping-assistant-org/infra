@@ -3,6 +3,16 @@
 Một repo, một compose. Infra trên server; application chạy local hoặc dùng image
 GHCR qua profile `apps`. Caddy global vẫn do server quản lý.
 
+```text
+compose.yaml / compose.sh     Cấu hình duy nhất và lệnh chạy
+.env.docker.example          Mẫu global env; file thật .env.docker nằm ngoài Git
+config/                     PostgreSQL, Debezium, Grafana
+env/                        Env mẫu cho application chạy local
+scripts/                    Bootstrap apps, đăng ký CDC, deploy release
+tests/                      Kiểm tra offline cấu hình và release
+.github/workflows/          CI/CD nhánh release
+```
+
 | Chế độ | Chạy gì |
 | --- | --- |
 | Mặc định | PostgreSQL, Redis, RabbitMQ, Kafka, Debezium Connect, Elasticsearch, LGTM |
@@ -174,7 +184,6 @@ hoặc chọn volume đã kiểm tra, không attach một volume vào hai contai
 Đổi env password không tự đổi tài khoản đã tồn tại trong DB/Rabbit/ES/Grafana.
 
 Không dùng `down -v`. Backup trước migration/deploy; retention không thay backup.
-`compose/` cũ giữ để tham khảo monolith, không dùng làm entrypoint mới.
 Repo GitHub: `pc-shopping-assistant-org/infra`. Owner cần cấu hình Environment
 `release`, variables/secrets và server env trước khi chạy CD.
 

@@ -46,6 +46,9 @@ def render(profile=None, overrides=None):
 
 
 class ComposeContracts(unittest.TestCase):
+    def test_repository_has_one_compose_entrypoint(self):
+        self.assertEqual(sorted(ROOT.rglob("compose.yaml")), [ROOT / "compose.yaml"])
+
     def config(self, profile=None):
         result = render(profile)
         self.assertEqual(result.returncode, 0, result.stderr)
