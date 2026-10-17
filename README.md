@@ -175,7 +175,8 @@ hoặc chọn volume đã kiểm tra, không attach một volume vào hai contai
 
 Không dùng `down -v`. Backup trước migration/deploy; retention không thay backup.
 `compose/` cũ giữ để tham khảo monolith, không dùng làm entrypoint mới.
-Chưa tạo remote GitHub cho repo infra, chưa cấu hình Environment/secrets trên GitHub.
+Repo GitHub: `pc-shopping-assistant-org/infra`. Owner cần cấu hình Environment
+`release`, variables/secrets và server env trước khi chạy CD.
 
 `python3 -m unittest discover -s tests -v` kiểm tra profile/auth/endpoints và scoped
 release bằng fake Docker. Không start container, không chứng minh server runtime.
