@@ -107,8 +107,8 @@ không PEM markers. Không generate key tạm cho deployed identity.
 
 ```sh
 # Package private: docker login ghcr.io bằng PAT có read:packages.
-python3 scripts/deploy.py --check
-python3 scripts/deploy.py
+./scripts/deploy.sh --check
+./scripts/deploy.sh
 ./compose.sh --profile apps ps
 ./compose.sh --profile setup run --rm register-connector
 ```
