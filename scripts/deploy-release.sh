@@ -1,42 +1,42 @@
 #!/usr/bin/env bash
-# One server-side lock serializes releases from independent application repos.
+# Infra is the only release owner; applications only publish images.
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-component=${1:?Usage: deploy-release.sh backend|ai|frontend sha-COMMIT}
-image_tag=${2:?An immutable sha-COMMIT tag is required}
-[[ "$image_tag" =~ ^sha-[0-9a-f]{40}$ ]] || { echo 'Invalid image tag' >&2; exit 2; }
-case "$component" in
-  backend)
-    tag_key=BACKEND_IMAGE_TAG
-    services=(discovery-server identity-service catalog-service order-service payment-service promotion-service search-service media-service sync-service api-gateway)
-    ;;
-  ai) tag_key=AI_IMAGE_TAG; services=(ai-migrate ai-service) ;;
-  frontend) tag_key=WEB_IMAGE_TAG; services=(web-frontend) ;;
-  *) echo 'Unknown release component' >&2; exit 2 ;;
-esac
+# Usage: deploy-release.sh [BACKEND_TAG [AI_TAG [WEB_TAG]]]
+# Run after all application builds finish. Use sha-* tags for a fixed release.
+backend_tag=${1:-release}
+ai_tag=${2:-release}
+web_tag=${3:-release}
+for tag in "$backend_tag" "$ai_tag" "$web_tag"; do
+  [[ "$tag" == release || "$tag" =~ ^sha-[0-9a-f]{40}$ ]] || { echo 'Invalid image tag' >&2; exit 2; }
+done
+[[ $# -le 3 ]] || { echo 'Expected backend, AI and web image tags only' >&2; exit 2; }
 [[ -f .env.docker ]] || { echo 'Missing infra/.env.docker' >&2; exit 2; }
-exec 9>.deploy.lock
-flock -w "${DEPLOY_LOCK_TIMEOUT_SECONDS:-600}" 9
+# The SSH workflow holds the same lock while installing configuration.
+if [[ "${DEPLOY_LOCK_HELD:-0}" != 1 ]]; then
+  exec 9>.deploy.lock
+  flock -w "${DEPLOY_LOCK_TIMEOUT_SECONDS:-600}" 9
+fi
 
 candidate=$(mktemp .release.env.XXXXXX)
 trap 'rm -f -- "$candidate"' EXIT
-if [[ -f .release.env ]]; then
-  awk -F= -v key="$tag_key" '$1 != key' .release.env > "$candidate"
-fi
-printf '%s=%s\n' "$tag_key" "$image_tag" >> "$candidate"
-compose=(docker compose --env-file .env.docker --env-file "$candidate" --profile apps)
-"${compose[@]}" config --quiet
-"${compose[@]}" pull "${services[@]}"
-if [[ "$component" == backend ]]; then
-  "${compose[@]}" run --rm --no-deps catalog-seed
-fi
-if [[ "$component" == ai ]]; then
-  # Stop the old executor before migrating; a failed migration requires operator action.
-  "${compose[@]}" stop ai-service
-  "${compose[@]}" run --rm --no-deps ai-migrate
-  services=(ai-service)
-fi
-"${compose[@]}" up -d --no-deps --wait --wait-timeout "${DEPLOY_WAIT_SECONDS:-300}" "${services[@]}"
+printf 'BACKEND_IMAGE_TAG=%s\nAI_IMAGE_TAG=%s\nWEB_IMAGE_TAG=%s\n' \
+  "$backend_tag" "$ai_tag" "$web_tag" > "$candidate"
+base=(docker compose --env-file .env.docker --env-file "$candidate")
+apps=("${base[@]}" --profile apps)
+wait_seconds=${DEPLOY_WAIT_SECONDS:-300}
+backend_services=(discovery-server identity-service catalog-service order-service payment-service promotion-service search-service media-service sync-service api-gateway)
+
+"${apps[@]}" config --quiet
+# Fail on missing images before changing running services.
+"${apps[@]}" pull
+"${base[@]}" up -d --wait --wait-timeout "$wait_seconds"
+"${apps[@]}" run --rm --no-deps catalog-seed
+"${apps[@]}" up -d --wait --wait-timeout "$wait_seconds" "${backend_services[@]}"
+# Stop the old executor before migrating; failure requires operator action.
+"${apps[@]}" stop ai-service
+"${apps[@]}" run --rm --no-deps ai-migrate
+"${apps[@]}" up -d --no-deps --wait --wait-timeout "$wait_seconds" ai-service web-frontend
 mv -- "$candidate" .release.env
-echo "Released $component at $image_tag"
+echo "Released backend=$backend_tag ai=$ai_tag web=$web_tag"

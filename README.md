@@ -105,6 +105,10 @@ Kafka retention mặc định 7 ngày, không phải backup.
 Password trong URL cần percent-encode. RSA keys là Base64 DER PKCS#8/X.509,
 không PEM markers. Không generate key tạm cho deployed identity.
 
+Trước khi public: identity còn migration tạo admin với credential dev cố định
+(ISSUE-142). Cần bootstrap admin bằng secret riêng và xử lý tài khoản cũ; seed
+dev này không phải cấu hình production an toàn.
+
 ```sh
 # Package private: docker login ghcr.io bằng PAT có read:packages.
 ./scripts/deploy.sh --check
@@ -119,20 +123,21 @@ Chạy lại giữ UUID, tên, trạng thái, hierarchy và mô tả đã có. A
 trực tiếp từ snapshot catalog; không cần điền category UUID vào env.
 
 Chạy seed riêng: `./scripts/seed-prod.sh`. Job chỉ cần PostgreSQL, không khởi động
-web/Kafka listeners của catalog. Backend release cũng chạy seed trước khi restart
+web/Kafka listeners của catalog. Infra release cũng chạy seed trước khi restart
 services. Image backend phải chứa lệnh `--seed-prod` trước khi dùng setup mới.
 
 Không build source trên server. AI image chứa migrations; `ai-migrate` phải thành
-công trước AI. Các image phải được publish từ release trước; `release` là tag
-bootstrap, CD sau đó pin `sha-<full commit>`.
+công trước AI. Các image phải được publish từ nhánh release của từng app trước
+khi chạy infra release.
 
 ## 5. GitHub CI/CD release
 
 Cả backend, ai-service, web-frontend và infra đều test trên push/PR/merge queue.
-**Chỉ push/manual dispatch trên đúng nhánh `release` mới publish/deploy**;
-không main, tag hoặc PR. App image có tag `release` và `sha-<full commit>`.
+Nhánh `release` của app **chỉ build/publish GHCR**, không SSH hoặc deploy.
+Nhánh `release` của infra **mới deploy**. Main, tag và PR không deploy.
+App image có tag `release` và `sha-<full commit>`.
 
-Mỗi repo tạo GitHub Environment **release**, cho phép deploy branch `release`:
+Chỉ repo **infra** cần GitHub Environment **release**, cho phép branch `release`:
 
 | Loại | Tên | Giá trị |
 | --- | --- | --- |
@@ -144,21 +149,27 @@ Mỗi repo tạo GitHub Environment **release**, cho phép deploy branch `releas
 | Secret | `SSH_KNOWN_HOSTS` | Host key đã xác minh ngoài pipeline |
 
 Không gửi private key vào chat, không tắt host-key checking. Với SSH port khác
-22, known_hosts cần đúng dạng `[host]:port`. Server login GHCR một lần bằng
-credential đọc package; pipeline publish dùng GITHUB_TOKEN, không đưa token đó
-vào container. Bật packages write theo policy của org nếu đang bị chặn.
+22, known_hosts cần đúng dạng `[host]:port`. Package public không cần server login
+GHCR; package private cần credential đọc package. Pipeline publish dùng
+GITHUB_TOKEN, không đưa token đó vào container.
 
-| Repo release | CD thực hiện |
+| Repo release | Thực hiện |
 | --- | --- |
-| backend | Đợi 10 image thành công, cập nhật nhóm 10 service BE, gồm sync |
-| ai-service | Pull AI, dừng executor cũ, migrate, cập nhật AI |
-| web-frontend | Chỉ pull/cập nhật FE |
-| infra | Upload config, giữ env/volumes, chỉ cập nhật dependency containers |
+| backend | Test + publish 10 image riêng, gồm sync; không deploy |
+| ai-service | Test + publish AI image; không deploy |
+| web-frontend | Test + publish FE image; không deploy |
+| infra | Upload config, pull image, dependencies → seed → backend → stop AI → migrate → AI/FE |
 
-CD dùng lock chung server, không cancel release đang chạy, bỏ qua run không còn
-là branch head. App release dùng `--no-deps`, không restart DB/Caddy hoặc app repo
-khác; đợi health trước khi ghi tag vào `.release.env`. Deploy đầu tiên dùng bước 4
-để bootstrap dependency graph. Infra release cần `.env.docker` đã có trên server.
+Đợi tất cả app builds thành công rồi mới push/dispatch infra `release`. Mặc định
+deploy tag `release` mới nhất; tag này mutable, không phải bản cố định. Muốn pin
+bản cụ thể, manual dispatch trên branch `release` với ba inputs
+`backend_image_tag`, `ai_image_tag`, `web_image_tag` là `sha-<full commit>` tương ứng.
+Push infra release luôn chọn lại tag `release`, thay các override cũ.
+
+CD dùng lock server, không cancel release đang chạy, bỏ qua run không còn là
+branch head; đợi health rồi ghi ba tag vào `.release.env`. Không sửa `.env.docker`,
+không xóa volumes hoặc động đến Caddy global. Server cần `.env.docker` sẵn có.
+Chạy cùng luồng thủ công: `./scripts/deploy-release.sh [BACKEND_TAG AI_TAG WEB_TAG]`.
 
 Migration/health lỗi thì job fail, không ghi nhận tag thành công. Không tự rollback
 schema: kiểm tra migration và phục hồi/cập nhật có chủ đích. Một deploy có thể đã
