@@ -58,7 +58,7 @@ class ComposeContracts(unittest.TestCase):
         config = self.config()
         self.assertEqual(set(config["services"]), {
             "postgres", "redis", "rabbitmq", "kafka", "elasticsearch", "kafka-connect",
-            "lgtm",
+            "lgtm", "kafka-ui",
         })
         for service in self.config("*")["services"].values():
             self.assertNotIn("build", service)
@@ -74,6 +74,20 @@ class ComposeContracts(unittest.TestCase):
             "AI_HARDWARE_CATALOG_MAPPING": "", "AI_OPENAI_API_KEY": "",
         })
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_kafka_ui_is_local_read_only_and_uses_internal_endpoints(self):
+        ui = self.config()["services"]["kafka-ui"]
+        self.assertEqual(ui["image"], "ghcr.io/kafbat/kafka-ui:v1.5.0")
+        self.assertEqual(len(ui["ports"]), 1)
+        self.assertEqual(ui["ports"][0]["host_ip"], "127.0.0.1")
+        self.assertEqual(ui["ports"][0]["published"], "18080")
+        self.assertEqual(ui["ports"][0]["target"], 8080)
+        env = ui["environment"]
+        self.assertEqual(env["KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS"], "kafka:9092")
+        self.assertEqual(env["KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS"], "http://kafka-connect:8083")
+        self.assertEqual(env["KAFKA_CLUSTERS_0_READONLY"], "true")
+        self.assertEqual(env["DYNAMIC_CONFIG_ENABLED"], "false")
+        self.assertEqual(ui["depends_on"]["kafka"]["condition"], "service_healthy")
 
     def test_connector_is_an_explicit_setup_step_without_checked_in_passwords(self):
         config = self.config("setup")

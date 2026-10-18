@@ -15,7 +15,7 @@ tests/                      Kiểm tra offline cấu hình và release
 
 | Chế độ | Chạy gì |
 | --- | --- |
-| Mặc định | PostgreSQL, Redis, RabbitMQ, Kafka, Debezium Connect, Elasticsearch, LGTM |
+| Mặc định | PostgreSQL, Redis, RabbitMQ, Kafka, Kafka UI, Debezium Connect, Elasticsearch, LGTM |
 | `apps` | Thêm Eureka, Gateway, 8 business services gồm sync, AI và Next.js |
 | `setup` | Job seed catalog và đăng ký/cập nhật connector |
 
@@ -84,6 +84,27 @@ Có private network riêng thì đổi `INFRA_BIND_ADDRESS`, `KAFKA_ADVERTISED_H
 và env client tương ứng. Các listener này chưa tự cấp TLS cho kết nối Internet.
 
 ## 3. CDC
+
+### Kafka UI
+
+Kafbat UI có sẵn trong compose mặc định, dùng Kafka/Connect nội bộ. Chế độ
+read-only để xem topics, messages, consumer groups/lag và connector status;
+không tạo/xóa topic, gửi message hay thay đổi connector qua UI.
+Chỉ bind `127.0.0.1:${KAFKA_UI_PORT:-18080}`, không expose qua Caddy/Internet.
+
+```sh
+# Trên server, sau khi cập nhật source infra:
+./compose.sh up -d kafka-ui
+# Trên máy local:
+ssh -N -o ExitOnForwardFailure=yes -L 18080:127.0.0.1:18080 user@your-server
+```
+
+Mở `http://127.0.0.1:18080`. Đổi `KAFKA_UI_PORT` trong `.env.docker` nếu port server
+bị trùng; sửa port đích của tunnel tương ứng. UI không tự đăng ký CDC connector;
+cluster hiện không có connector thì danh sách Connect vẫn trống.
+Cấu hình: [Kafbat UI](https://ui.docs.kafbat.io/configuration/misc-configuration-properties).
+
+### Đăng ký connector
 
 Sau khi catalog-service chạy Flyway thành công:
 

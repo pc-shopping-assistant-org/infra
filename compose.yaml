@@ -186,6 +186,24 @@ services:
     ports:
       - "127.0.0.1:18083:8083"
 
+  kafka-ui:
+    <<: *service
+    image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_started
+    environment:
+      KAFKA_CLUSTERS_0_NAME: gearpc
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: catalog-cdc
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      DYNAMIC_CONFIG_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${KAFKA_UI_PORT:-18080}:8080"
+
   register-connector:
     image: python:3.12-slim-bookworm
     profiles: [setup]
