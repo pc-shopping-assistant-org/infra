@@ -166,6 +166,19 @@ services:
       timeout: 5s
       retries: 12
 
+  seaweedfs:
+    <<: *service
+    image: chrislusf/seaweedfs:4.48
+    command: [mini, -dir=/data, -admin.port=12646]
+    environment:
+      WEED_ADMIN_USER: ${SEAWEEDFS_ADMIN_USER:-admin}
+      WEED_ADMIN_PASSWORD: ${SEAWEEDFS_ADMIN_PASSWORD:?Set SEAWEEDFS_ADMIN_PASSWORD}
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:${S3_PORT:-8333}:8333"
+      - "127.0.0.1:${SEAWEEDFS_ADMIN_PORT:-12646}:12646"
+    volumes:
+      - seaweedfs-data:/data
+
   kafka-connect:
     <<: *service
     image: quay.io/debezium/connect:3.0
@@ -462,3 +475,5 @@ volumes:
     name: ${ELASTICSEARCH_VOLUME_NAME:-pcshop-infra-elasticsearch}
   lgtm-data:
     name: ${LGTM_VOLUME_NAME:-pcshop-infra-lgtm}
+  seaweedfs-data:
+    name: ${SEAWEEDFS_VOLUME_NAME:-pcshop-infra-seaweedfs}

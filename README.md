@@ -15,7 +15,7 @@ tests/                      Kiểm tra offline cấu hình và release
 
 | Chế độ | Chạy gì |
 | --- | --- |
-| Mặc định | PostgreSQL, Redis, RabbitMQ, Kafka, Kafka UI, Debezium Connect, Elasticsearch, LGTM |
+| Mặc định | PostgreSQL, Redis, RabbitMQ, Kafka, Kafka UI, Debezium Connect, Elasticsearch, SeaweedFS S3, LGTM |
 | `apps` | Thêm Eureka, Gateway, 8 business services gồm sync, AI và Next.js |
 | `setup` | Job seed catalog và đăng ký/cập nhật connector |
 
@@ -56,6 +56,14 @@ Các port mặc định chỉ bind localhost. Kafka external có SASL/PLAIN, Red
 Elasticsearch bật auth; transport native được mã hóa qua SSH. Không public các
 port plaintext chỉ vì đã có mật khẩu. Single broker/node và LGTM all-in-one là
 baseline dev/demo, chưa phải HA hoặc production hardening hoàn chỉnh.
+
+SeaweedFS S3 dùng `http://127.0.0.1:8333` (trong Docker network: `http://seaweedfs:8333`).
+Admin UI mở tại `http://127.0.0.1:12646`, đăng nhập bằng
+`SEAWEEDFS_ADMIN_USER` / `SEAWEEDFS_ADMIN_PASSWORD` trong `.env.docker`. Cổng UI
+chỉ bind localhost; không expose cổng này trực tiếp ra Internet. Tạo bucket
+`pcshop-media` và S3 credentials trong Admin UI. `media-service` hiện vẫn dùng
+Cloudinary; cần bổ sung S3 adapter trước khi cấu hình các credentials này cho
+service. Compose không tự tạo bucket hoặc cấp S3 key.
 
 ## 2. Dev local dùng infra server
 
@@ -225,6 +233,11 @@ api.gearpc.example.com {
 grafana.gearpc.example.com {
     reverse_proxy 127.0.0.1:3300
 }
+
+# SeaweedFS Admin UI; add a DuckDNS record pointing to the server first.
+gearpc-storage.lamdx4.duckdns.org {
+    reverse_proxy 127.0.0.1:12646
+}
 ```
 
 Caddy Docker: attach network `pcshop-infra`, dùng `web-frontend:3000`,
@@ -234,8 +247,9 @@ HTTP reverse_proxy. Grafana yêu cầu password đã cấu hình.
 
 ## Dữ liệu và verification
 
-Volume names explicit, không đổi theo checkout. Chuyển stack cũ: backup/restore
-hoặc chọn volume đã kiểm tra, không attach một volume vào hai container đang chạy.
+Tất cả persistent data dùng named volume Docker với tên ổn định trong
+`.env.docker`. Chuyển stack cũ: backup/restore hoặc chọn volume đã kiểm tra,
+không attach một volume vào hai container đang chạy.
 Đổi env password không tự đổi tài khoản đã tồn tại trong DB/Rabbit/ES/Grafana.
 
 Không dùng `down -v`. Backup trước migration/deploy; retention không thay backup.
