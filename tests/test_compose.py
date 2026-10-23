@@ -81,7 +81,8 @@ class ComposeContracts(unittest.TestCase):
         )
         data_volume = seaweedfs["volumes"][0]
         self.assertEqual(data_volume["type"], "volume")
-        self.assertEqual(data_volume["source"], "pcshop-infra-seaweedfs")
+        self.assertEqual(data_volume["source"], "seaweedfs-data")
+        self.assertEqual(config["volumes"]["seaweedfs-data"]["name"], "pcshop-infra-seaweedfs")
 
     def test_infra_only_does_not_require_application_secrets(self):
         result = render(overrides={
