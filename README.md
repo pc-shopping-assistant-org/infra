@@ -61,9 +61,16 @@ SeaweedFS S3 dùng `http://127.0.0.1:8333` (trong Docker network: `http://seawee
 Admin UI mở tại `http://127.0.0.1:12646`, đăng nhập bằng
 `SEAWEEDFS_ADMIN_USER` / `SEAWEEDFS_ADMIN_PASSWORD` trong `.env.docker`. Cổng UI
 chỉ bind localhost; không expose cổng này trực tiếp ra Internet. Tạo bucket
-`pcshop-media` và S3 credentials trong Admin UI. `media-service` hiện vẫn dùng
-Cloudinary; cần bổ sung S3 adapter trước khi cấu hình các credentials này cho
-service. Compose không tự tạo bucket hoặc cấp S3 key.
+`pcshop-media` và S3 credentials trong Admin UI. Compose không tự tạo bucket hoặc
+cấp S3 key. Seed và `media-service` dùng `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` làm client credentials; chúng không được truyền vào
+SeaweedFS server. `MEDIA_STORAGE_PROVIDER=S3` dùng adapter S3 cho upload mới;
+`CLOUDINARY` vẫn chọn được, và URL trong các bản ghi Cloudinary cũ vẫn đọc được.
+
+`S3_ENDPOINT=http://seaweedfs:8333` dùng nội bộ Docker. `S3_PUBLIC_BASE_URL` là
+origin public cho browser, ví dụ `https://gearpc-files.lamdx4.duckdns.org`, không
+kèm bucket. URL object có dạng `<public-base>/pcshop-media/<key>`. Domain public
+và quyền đọc bucket phải được cấu hình riêng; đặt biến URL không tự cấp quyền.
 
 ## 2. Dev local dùng infra server
 
@@ -140,6 +147,24 @@ dev này không phải cấu hình production an toàn.
 
 ```sh
 # Package private: docker login ghcr.io bằng PAT có read:packages.
+./compose.sh up -d
+```
+
+Sau khi dependencies chạy:
+
+1. Đăng nhập SeaweedFS Admin UI, tạo bucket `pcshop-media` và client credentials
+   có quyền kiểm tra bucket (`ListBucket`) và đọc/ghi/xóa object trong bucket
+   này. Backend cần quyền xóa để dọn object vừa upload khi lưu metadata DB thất bại.
+2. Cho phép đọc public object ảnh trong `pcshop-media`; không cấp quyền ghi
+   public. Cấu hình DNS/Caddy cho domain object theo mục 6.
+3. Điền `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` vào
+   `.env.docker`. Giữ endpoint nội bộ `http://seaweedfs:8333`.
+4. Chạy seed lần đầu thủ công trước release. Bộ seed có 8.502 ảnh nguồn nên lần
+   đầu có thể lâu hơn timeout deploy CI. Image catalog phải chứa seed Java mới.
+
+```sh
+./compose.sh --profile setup pull catalog-seed
+./scripts/seed-prod.sh
 ./scripts/deploy.sh --check
 ./scripts/deploy-release.sh 1.0.0
 ./compose.sh --profile apps ps
@@ -147,14 +172,17 @@ dev này không phải cấu hình production an toàn.
 ```
 
 Setup kiểm tra image version trên registry, pull, dựng dependencies, gọi `seed-prod`
-để migrate + UPSERT taxonomy, rồi chạy backend, migrate AI và chạy AI/FE.
-Seed chỉ gồm 12 loại linh kiện/phụ kiện, không có sản phẩm demo.
-Chạy lại giữ UUID, tên, trạng thái, hierarchy và mô tả đã có. AI đọc `hardwareType`
-trực tiếp từ snapshot catalog; không cần điền category UUID vào env.
+để migrate identity/media/catalog, thêm taxonomy và dữ liệu catalog còn thiếu,
+rồi chạy backend, migrate AI và chạy AI/FE. Seed chỉ INSERT; bản ghi đã tồn tại,
+UUID, tồn kho và trạng thái được giữ nguyên. Ảnh còn thiếu được tải từ URL nguồn
+lên S3 trước khi ghi metadata và liên kết catalog. Object đã upload được dùng lại
+khi retry; lỗi seed không được coi là hoàn tất. `SEED_IMAGE_WORKERS` mặc định 8.
+Seed không tự copy lại các bản ghi ảnh EXTERNAL/Cloudinary đã có sang S3.
 
-Chạy seed riêng: `./scripts/seed-prod.sh`. Job chỉ cần PostgreSQL, không khởi động
-web/Kafka listeners của catalog. Infra release cũng chạy seed trước khi restart
-services. Image backend phải chứa lệnh `--seed-prod` trước khi dùng setup mới.
+Chạy seed riêng: `./scripts/seed-prod.sh`. Job dùng PostgreSQL + SeaweedFS, không
+khởi động web/Kafka listeners của catalog. Infra release chạy lại seed trước khi
+restart services; khi dữ liệu đã đủ, seed bỏ qua các hàng và ảnh đã có. AI đọc
+`hardwareType` từ catalog, không cần category UUID trong env.
 
 Không build source trên server. AI image chứa migrations; `ai-migrate` phải thành
 công trước AI. Các image phải được publish từ nhánh release của từng app trước
@@ -237,6 +265,11 @@ grafana.gearpc.example.com {
 # SeaweedFS Admin UI; add a DuckDNS record pointing to the server first.
 gearpc-storage.lamdx4.duckdns.org {
     reverse_proxy 127.0.0.1:12646
+}
+
+# S3 object endpoint for browser URLs; the bucket policy controls public reads.
+gearpc-files.lamdx4.duckdns.org {
+    reverse_proxy 127.0.0.1:8333
 }
 ```
 

@@ -21,6 +21,9 @@ TEST_ENV = {
     "ELASTIC_PASSWORD": "compose-test-only",
     "GRAFANA_ADMIN_PASSWORD": "compose-test-only",
     "SEAWEEDFS_ADMIN_PASSWORD": "compose-test-only",
+    "AWS_ACCESS_KEY_ID": "s3-test-only",
+    "AWS_SECRET_ACCESS_KEY": "s3-test-only",
+    "S3_PUBLIC_BASE_URL": "https://files.gearpc.example.test",
     "BACKEND_IMAGE_TAG": "sha-test",
     "AI_IMAGE_TAG": "sha-test",
     "WEB_IMAGE_TAG": "sha-test",
@@ -88,6 +91,7 @@ class ComposeContracts(unittest.TestCase):
         result = render(overrides={
             "JWT_PRIVATE_KEY": "", "JWT_PUBLIC_KEY": "", "AI_DATABASE_URL": "",
             "AI_HARDWARE_CATALOG_MAPPING": "", "AI_OPENAI_API_KEY": "",
+            "AWS_ACCESS_KEY_ID": "", "AWS_SECRET_ACCESS_KEY": "", "S3_PUBLIC_BASE_URL": "",
         })
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -112,13 +116,32 @@ class ComposeContracts(unittest.TestCase):
         self.assertNotIn("database.password", connector)
         self.assertEqual(len(connector["table.include.list"].split(",")), 5)
 
-    def test_catalog_seed_is_an_explicit_database_only_setup_job(self):
+    def test_catalog_seed_is_an_explicit_database_and_s3_setup_job(self):
         seed = self.config("setup")["services"]["catalog-seed"]
         self.assertEqual(seed["command"], ["--seed-prod"])
-        self.assertEqual(set(seed["depends_on"]), {"postgres"})
+        self.assertEqual(set(seed["depends_on"]), {"postgres", "seaweedfs"})
+        self.assertEqual(seed["depends_on"]["postgres"]["condition"], "service_healthy")
+        self.assertEqual(seed["depends_on"]["seaweedfs"]["condition"], "service_started")
         self.assertEqual(seed["restart"], "no")
         self.assertTrue(seed["healthcheck"]["disable"])
         self.assertNotIn("JWT_PRIVATE_KEY", seed["environment"])
+
+    def test_s3_client_credentials_only_reach_seed_and_media(self):
+        services = self.config("*")["services"]
+        for name, service in services.items():
+            env = service.get("environment", {})
+            if name in {"catalog-seed", "media-service"}:
+                self.assertEqual(env["S3_ENDPOINT"], "http://seaweedfs:8333")
+                self.assertEqual(env["S3_BUCKET"], "pcshop-media")
+                self.assertEqual(env["S3_REGION"], "us-east-1")
+                self.assertEqual(env["S3_PUBLIC_BASE_URL"], "https://files.gearpc.example.test")
+                self.assertEqual(env["AWS_ACCESS_KEY_ID"], "s3-test-only")
+                self.assertEqual(env["AWS_SECRET_ACCESS_KEY"], "s3-test-only")
+            else:
+                self.assertNotIn("AWS_ACCESS_KEY_ID", env, name)
+                self.assertNotIn("AWS_SECRET_ACCESS_KEY", env, name)
+        self.assertEqual(services["media-service"]["environment"]["MEDIA_STORAGE_PROVIDER"], "S3")
+        self.assertEqual(services["catalog-seed"]["environment"]["SEED_IMAGE_WORKERS"], "8")
 
     def test_credentials_are_required_and_authentication_is_enabled(self):
         config = self.config()["services"]

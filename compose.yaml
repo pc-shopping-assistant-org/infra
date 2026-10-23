@@ -41,6 +41,14 @@ x-search-env: &search-env
   SPRING_ELASTICSEARCH_USERNAME: elastic
   SPRING_ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD}
 
+x-s3-env: &s3-env
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://seaweedfs:8333}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-pcshop-media}
+  S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+
 x-ai-env: &ai-env
   AI_DATABASE_URL: ${AI_DATABASE_URL:-}
   AI_BACKEND_API_URL: ${AI_BACKEND_API_URL:-http://catalog-service:8082}
@@ -286,10 +294,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      seaweedfs:
+        condition: service_started
     environment:
+      <<: *s3-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalog_db
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      SEED_IMAGE_WORKERS: ${SEED_IMAGE_WORKERS:-8}
     command: ["--seed-prod"]
     healthcheck:
       disable: true
@@ -383,9 +395,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      <<: *db-env
+      <<: [*db-env, *s3-env]
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/media_db
       SERVER_PORT: "8087"
+      MEDIA_STORAGE_PROVIDER: ${MEDIA_STORAGE_PROVIDER:-S3}
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
