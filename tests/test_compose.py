@@ -20,6 +20,7 @@ TEST_ENV = {
     "KAFKA_PASSWORD": "compose-test-only",
     "ELASTIC_PASSWORD": "compose-test-only",
     "GRAFANA_ADMIN_PASSWORD": "compose-test-only",
+    "SEAWEEDFS_ADMIN_PASSWORD": "compose-test-only",
     "BACKEND_IMAGE_TAG": "sha-test",
     "AI_IMAGE_TAG": "sha-test",
     "WEB_IMAGE_TAG": "sha-test",
@@ -58,7 +59,7 @@ class ComposeContracts(unittest.TestCase):
         config = self.config()
         self.assertEqual(set(config["services"]), {
             "postgres", "redis", "rabbitmq", "kafka", "elasticsearch", "kafka-connect",
-            "lgtm", "kafka-ui",
+            "seaweedfs", "lgtm", "kafka-ui",
         })
         for service in self.config("*")["services"].values():
             self.assertNotIn("build", service)
@@ -67,6 +68,20 @@ class ComposeContracts(unittest.TestCase):
             for volume in service.get("volumes", []):
                 if volume["type"] == "bind":
                     self.assertTrue(Path(volume["source"]).exists(), volume["source"])
+
+    def test_seaweedfs_admin_and_s3_ports_are_local_and_persistent(self):
+        config = self.config()
+        seaweedfs = config["services"]["seaweedfs"]
+        self.assertEqual(seaweedfs["image"], "chrislusf/seaweedfs:4.48")
+        self.assertEqual(seaweedfs["environment"]["WEED_ADMIN_USER"], "admin")
+        self.assertEqual(seaweedfs["environment"]["WEED_ADMIN_PASSWORD"], "compose-test-only")
+        self.assertEqual(
+            {(port["host_ip"], port["published"]) for port in seaweedfs["ports"]},
+            {("127.0.0.1", "8333"), ("127.0.0.1", "12646")},
+        )
+        data_volume = seaweedfs["volumes"][0]
+        self.assertEqual(data_volume["type"], "volume")
+        self.assertEqual(data_volume["source"], "pcshop-infra-seaweedfs")
 
     def test_infra_only_does_not_require_application_secrets(self):
         result = render(overrides={
