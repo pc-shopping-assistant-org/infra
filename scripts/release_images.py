@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the tracked production image pins and emit GitHub env assignments."""
+"""Validate the server's .release.env and emit its three image tags."""
 
 import re
 import sys
@@ -27,7 +27,7 @@ def read_pins(path: Path) -> dict[str, str]:
 
 if __name__ == "__main__":
     try:
-        pins = read_pins(Path(sys.argv[1] if len(sys.argv) == 2 else "release/images.lock"))
+        pins = read_pins(Path(sys.argv[1] if len(sys.argv) == 2 else ".release.env"))
     except (OSError, ValueError) as error:
         sys.exit(str(error))
     for key in sorted(KEYS):

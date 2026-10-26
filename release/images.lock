@@ -1,4 +1,0 @@
-# Desired production image versions. Merge a change here to deploy.
-BACKEND_IMAGE_TAG=1.0.0
-AI_IMAGE_TAG=1.0.1
-WEB_IMAGE_TAG=1.0.0

@@ -1,4 +1,4 @@
-"""The deploy manifest must pin exactly one valid version per application."""
+"""The server release env must select exactly one valid version per application."""
 
 import subprocess
 import tempfile
@@ -8,13 +8,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/release_images.py"
-PROPOSE = ROOT / "scripts/propose_image.py"
 
 
 class ReleaseVersion(unittest.TestCase):
     def read(self, content: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "images.lock"
+            path = Path(directory) / ".release.env"
             path.write_text(content)
             return subprocess.run(
                 ["python3", str(SCRIPT), str(path)],
@@ -42,31 +41,12 @@ class ReleaseVersion(unittest.TestCase):
             with self.subTest(content=content):
                 self.assertNotEqual(self.read(content).returncode, 0)
 
-    def test_repository_manifest_is_valid(self):
-        result = subprocess.run(["python3", str(SCRIPT)], cwd=ROOT, text=True, capture_output=True)
+    def test_release_env_example_is_valid(self):
+        result = subprocess.run(
+            ["python3", str(SCRIPT), ".release.env.example"],
+            cwd=ROOT, text=True, capture_output=True,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_proposal_updates_only_selected_app(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "release").mkdir()
-            manifest = root / "release/images.lock"
-            manifest.write_text("BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.0\nWEB_IMAGE_TAG=1.0.0\n")
-            output = root / "output"
-            result = subprocess.run(
-                ["python3", str(PROPOSE), "ai", "release/v1.0.1", str(output)],
-                cwd=root, text=True, capture_output=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(manifest.read_text(),
-                             "BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.1\nWEB_IMAGE_TAG=1.0.0\n")
-            self.assertIn("changed=true", output.read_text())
-            second = subprocess.run(
-                ["python3", str(PROPOSE), "ai", "release/v1.0.1", str(output)],
-                cwd=root, text=True, capture_output=True,
-            )
-            self.assertEqual(second.returncode, 0, second.stderr)
-            self.assertIn("changed=false", output.read_text())
 
 
 if __name__ == "__main__":

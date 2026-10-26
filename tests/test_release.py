@@ -26,9 +26,12 @@ class ReleaseDelivery(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / "scripts").mkdir()
         shutil.copy(ROOT / "scripts/deploy-release.sh", self.root / "scripts/deploy-release.sh")
+        shutil.copy(ROOT / "scripts/release_images.py", self.root / "scripts/release_images.py")
         shutil.copy(ROOT / "compose.sh", self.root / "compose.sh")
         (self.root / ".env.docker").write_text("POSTGRES_PASSWORD=server-secret\n")
-        (self.root / ".release.env").write_text("AI_IMAGE_TAG=old-ai\nWEB_IMAGE_TAG=old-web\n")
+        (self.root / ".release.env").write_text(
+            "BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.0\nWEB_IMAGE_TAG=1.0.0\n"
+        )
         (self.root / "bin").mkdir()
         (self.root / "compose-config.json").write_text(json.dumps({"services": {
             name: {"image": f"ghcr.io/pc-shopping-assistant-org/{name}:1.0.0"}
@@ -57,11 +60,19 @@ exit 0
         docker.chmod(0o755)
 
     def release(self, *tags, fail_on="", locked=False, first_deploy=False, ambient_tag=""):
-        command = ["bash", str(self.root / "scripts/deploy-release.sh"), *tags]
+        if tags:
+            values = (tags[0], tags[1] if len(tags) > 1 else tags[0],
+                      tags[2] if len(tags) > 2 else tags[0])
+            (self.root / ".release.env").write_text(
+                "".join(f"{key}={value}\n" for key, value in zip(
+                    ("BACKEND_IMAGE_TAG", "AI_IMAGE_TAG", "WEB_IMAGE_TAG"), values
+                ))
+            )
+        command = ["bash", str(self.root / "scripts/deploy-release.sh")]
         if locked:
             command = ["bash", "-c",
                        'cd "$1"; exec 9>.deploy.lock; flock -w 1 9; '
-                       'DEPLOY_LOCK_HELD=1 source scripts/deploy-release.sh 1.0.0',
+                       'DEPLOY_LOCK_HELD=1 bash scripts/deploy-release.sh',
                        "infra-release", str(self.root)]
         return subprocess.run(
             command,
@@ -74,12 +85,12 @@ exit 0
             text=True, capture_output=True, check=False, timeout=5,
         )
 
-    def test_workflow_can_source_script_under_existing_server_lock(self):
+    def test_workflow_can_run_script_under_existing_server_lock(self):
         result = self.release(locked=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("WEB_IMAGE_TAG=1.0.0", (self.root / ".release.env").read_text())
 
-    def test_version_deploys_all_groups_and_replaces_old_tag_overrides(self):
+    def test_file_versions_deploy_all_groups_without_rewriting_configuration(self):
         result = self.release(VERSION)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = (self.root / "calls").read_text()
@@ -113,14 +124,14 @@ exit 0
         self.assertNotIn("ai-migrate", calls[apps])
         self.assertIn(f"BACKEND_IMAGE_TAG={TAG}", (self.root / ".release.env").read_text())
 
-    def test_failure_does_not_publish_tags_or_continue_starting_applications(self):
+    def test_failure_preserves_selected_versions_and_stops_deployment(self):
         for failure in ("manifest", "pull", "catalog-seed", "ai-migrate", "--no-deps --wait"):
             with self.subTest(failure=failure):
                 (self.root / "calls").unlink(missing_ok=True)
                 result = self.release(VERSION, fail_on=failure)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual((self.root / ".release.env").read_text(),
-                                 "AI_IMAGE_TAG=old-ai\nWEB_IMAGE_TAG=old-web\n")
+                                 "BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.0\nWEB_IMAGE_TAG=1.0.0\n")
                 if failure != "--no-deps --wait":
                     self.assertNotIn("up -d --no-deps", (self.root / "calls").read_text())
                 self.assertNotIn("image rm", (self.root / "calls").read_text())
@@ -162,10 +173,24 @@ exit 0
         self.assertIn("BACKEND_IMAGE_TAG=1.0.0", (self.root / ".release.env").read_text())
 
     def test_invalid_tag_is_rejected_before_docker_runs(self):
-        for tags in ((), ("release",), ("latest",), ("v1.0.0",), ("01.0.0",),
+        for tags in (("release",), ("latest",), ("v1.0.0",), ("01.0.0",),
                      ("1.0",), ("1.0.0;echo bad",), ("1.0.0", "unknown")):
             with self.subTest(tags=tags):
                 self.assertNotEqual(self.release(*tags).returncode, 0)
+        self.assertFalse((self.root / "calls").exists())
+
+    def test_missing_release_file_is_rejected_before_docker_runs(self):
+        (self.root / ".release.env").unlink()
+        self.assertNotEqual(self.release().returncode, 0)
+        self.assertFalse((self.root / "calls").exists())
+
+    def test_cli_cannot_override_release_file(self):
+        result = subprocess.run(
+            ["bash", str(self.root / "scripts/deploy-release.sh"), "2.0.0"],
+            text=True, capture_output=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Set image versions in .release.env", result.stderr)
         self.assertFalse((self.root / "calls").exists())
 
     def test_compose_wrapper_always_loads_global_env_then_release_tags(self):
