@@ -198,6 +198,8 @@ khi chạy infra release.
 ## 5. GitHub CI/CD release
 
 Cả backend, ai-service, web-frontend và infra đều test trên push/PR/merge queue.
+Run CI mới hủy run CI cũ trên cùng nhánh/PR, kể cả nhánh release. Infra áp dụng
+quy tắc này riêng cho job verify; job deploy chạy lần lượt và không bị hủy giữa chừng.
 Nhánh `release/vX.Y.Z` của app chỉ build/publish GHCR, không SSH hoặc deploy.
 Infra deploy khi nhánh `release/*` thay đổi hoặc được dispatch thủ công trên
 nhánh đó. Version luôn lấy từ `.release.env` sẵn có trên server: `X.Y.Z`,

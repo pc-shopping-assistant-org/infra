@@ -9,12 +9,11 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: infra-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
-
 jobs:
   verify:
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -30,6 +29,9 @@ jobs:
 
   deploy:
     needs: verify
+    concurrency:
+      group: infra-production-deploy
+      cancel-in-progress: false
     if: >-
       startsWith(github.ref, 'refs/heads/release/') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
