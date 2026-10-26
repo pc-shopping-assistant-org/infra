@@ -1,0 +1,54 @@
+name: Propose production image
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+      release_branch:
+        required: true
+        type: string
+    secrets:
+      INFRA_RELEASE_PR_TOKEN:
+        required: true
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.INFRA_RELEASE_PR_TOKEN }}
+      COMPONENT: ${{ inputs.component }}
+      RELEASE_BRANCH: ${{ inputs.release_branch }}
+    steps:
+      - name: Check out production manifest
+        uses: actions/checkout@v4
+        with:
+          repository: pc-shopping-assistant-org/infra
+          ref: release/production
+          token: ${{ secrets.INFRA_RELEASE_PR_TOKEN }}
+
+      - name: Validate published version and update only its image pin
+        id: pin
+        shell: bash
+        run: python3 scripts/propose_image.py "$COMPONENT" "$RELEASE_BRANCH" "$GITHUB_OUTPUT"
+
+      - name: Create version proposal
+        if: steps.pin.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${{ steps.pin.outputs.version }}
+          branch="promote/${COMPONENT}-${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name 'gearPC release bot'
+          git config user.email 'release-bot@users.noreply.github.com'
+          git switch -c "$branch"
+          git add release/images.lock
+          git commit -m "release: propose ${COMPONENT} ${version}"
+          git push origin "$branch"
+          gh pr create --repo pc-shopping-assistant-org/infra \
+            --base release/production --head "$branch" \
+            --title "Release ${COMPONENT} ${version}" \
+            --body "Image build passed. Updates only ${COMPONENT} in release/images.lock. Merge to deploy."

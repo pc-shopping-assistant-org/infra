@@ -5,23 +5,13 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
-    inputs:
-      backend_image_tag:
-        description: Backend version or sha-FULL_COMMIT (blank uses branch version)
-        type: string
-      ai_image_tag:
-        description: AI version or sha-FULL_COMMIT (blank uses branch version)
-        type: string
-      web_image_tag:
-        description: Web version or sha-FULL_COMMIT (blank uses branch version)
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
   group: infra-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/heads/release/') }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/release/production' }}
 
 jobs:
   verify:
@@ -36,11 +26,12 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -v
           bash -n compose.sh scripts/deploy.sh scripts/seed-prod.sh scripts/deploy-release.sh config/postgres/init-databases.sh
+          python3 scripts/release_images.py
 
   deploy:
     needs: verify
     if: >-
-      startsWith(github.ref, 'refs/heads/release/') &&
+      github.ref == 'refs/heads/release/production' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -53,22 +44,16 @@ jobs:
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
       INFRA_REVISION: ${{ github.sha }}
-      BACKEND_IMAGE_TAG: ${{ inputs.backend_image_tag }}
-      AI_IMAGE_TAG: ${{ inputs.ai_image_tag }}
-      WEB_IMAGE_TAG: ${{ inputs.web_image_tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+      - name: Read and validate desired image versions
+        run: python3 scripts/release_images.py >> "$GITHUB_ENV"
       - name: Upload config and deploy dependencies and application images
         shell: bash
         run: |
           set -euo pipefail
-          version=${GITHUB_REF_NAME#release/v}
           version_pattern='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.[1-9][0-9]*)?'
-          [[ "$GITHUB_REF_NAME" == release/v* && "$version" =~ ^${version_pattern}$ ]] || { echo 'Use release/vX.Y.Z or release/vX.Y.Z-rc.N' >&2; exit 2; }
-          BACKEND_IMAGE_TAG=${BACKEND_IMAGE_TAG:-$version}
-          AI_IMAGE_TAG=${AI_IMAGE_TAG:-$version}
-          WEB_IMAGE_TAG=${WEB_IMAGE_TAG:-$version}
           latest_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
           if [[ "$latest_sha" != "$GITHUB_SHA" ]]; then
             echo 'Skip superseded infra release; branch head has changed'

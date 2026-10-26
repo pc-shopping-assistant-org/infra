@@ -30,9 +30,9 @@ global env/signing keys sang FE. Docker context BE chỉ có JAR; AI/FE loại `
 Không truyền deployment secrets/public config qua build args. Google client ID
 được FE đọc qua `/api/config` lúc runtime, cùng `GOOGLE_CLIENT_ID` của identity.
 
-`.release.env` do CD quản lý, chỉ giữ ba image tag BE/AI/FE sau deploy thành công.
-File này không chứa secrets, không commit và không sửa `.env.docker`.
-Muốn pin tag thủ công, cập nhật/xóa đúng dòng override trong `.release.env`.
+`release/images.lock` pin phiên bản mong muốn của BE/AI/FE. Merge thay đổi vào
+`release/production` để deploy. `.release.env` chỉ ghi phiên bản đã deploy thành
+công trên server; file này không chứa secrets, không commit và không sửa tay.
 
 ## 1. Khởi tạo server
 
@@ -166,7 +166,7 @@ Sau khi dependencies chạy:
 ./compose.sh --profile setup pull catalog-seed
 ./scripts/seed-prod.sh
 ./scripts/deploy.sh --check
-./scripts/deploy-release.sh 1.0.0
+./scripts/deploy-release.sh 1.0.0 1.0.1 1.0.0
 ./compose.sh --profile apps ps
 ./compose.sh --profile setup run --rm register-connector
 ```
@@ -191,13 +191,13 @@ khi chạy infra release.
 ## 5. GitHub CI/CD release
 
 Cả backend, ai-service, web-frontend và infra đều test trên push/PR/merge queue.
-Nhánh `release/vX.Y.Z` của app **chỉ build/publish GHCR**, không SSH hoặc deploy.
-Nhánh cùng tên của infra **mới deploy**. Main, tag và PR không deploy.
-Ví dụ app `release/v1.0.0` publish `:1.0.0` + `:sha-<full commit>`;
-infra `release/v1.0.0` chọn `:1.0.0` cho cả BE/AI/FE. Cũng hỗ trợ `v1.1.0-rc.1`.
+Nhánh `release/vX.Y.Z` của app chỉ build/publish GHCR, không SSH hoặc deploy.
+Infra chỉ deploy khi `release/production` thay đổi hoặc được dispatch thủ công.
+Manifest `release/images.lock` pin riêng từng app bằng `X.Y.Z`, `X.Y.Z-rc.N`
+hoặc `sha-<full commit>`. Không dùng `latest` hay suy version từ tên nhánh infra.
 
 Chỉ repo **infra** cần GitHub Environment **release**. Cấu hình deployment branch
-rule cho phép `release/*` (thay rule cũ chỉ cho phép `release`):
+rule cho phép `release/production`:
 
 | Loại | Tên | Giá trị |
 | --- | --- | --- |
@@ -220,10 +220,12 @@ GITHUB_TOKEN, không đưa token đó vào container.
 | web-frontend | Test + publish FE image; không deploy |
 | infra | Upload config, pull image, dependencies → seed → backend → stop AI → migrate → AI/FE |
 
-Đợi tất cả app builds thành công rồi mới push/dispatch nhánh infra cùng version.
-Không fallback `latest`/`release`. Dispatch cho phép chọn version riêng qua
-`backend_image_tag`, `ai_image_tag`, `web_image_tag`: `X.Y.Z`, `X.Y.Z-rc.N` hoặc
-`sha-<full commit>`. Để trống lấy version từ nhánh infra, không từ env cũ.
+Sau khi image mới publish thành công, app CI tạo PR chỉ sửa tag của app tương ứng
+trong `release/images.lock`. Merge PR sau khi review để infra CD deploy. Mỗi app
+repo cần secret `INFRA_RELEASE_PR_TOKEN` có quyền Contents và Pull requests
+read/write trên repo infra; `GITHUB_TOKEN` của app không có quyền cross-repo.
+Không có secret này, image vẫn được publish nhưng job đề xuất PR sẽ fail rõ lý do.
+Lần đầu có thể sửa manifest thủ công sau khi xác nhận image đã có trên GHCR.
 
 Không sửa code trên branch version đã phát hành; dùng `release/v1.0.1` cho bản sửa.
 GHCR tags chưa được khóa ghi đè tự động (ISSUE-143); đây là quy ước release hiện tại,
@@ -232,8 +234,8 @@ không phải bảo đảm image bất biến ở registry.
 CD dùng lock server, không cancel release đang chạy, bỏ qua run không còn là
 branch head; đợi health rồi ghi ba tag vào `.release.env`. Không sửa `.env.docker`,
 không xóa volumes hoặc động đến Caddy global. Server cần `.env.docker` sẵn có.
-Chạy thủ công: `./scripts/deploy-release.sh 1.0.0`.
-Chọn riêng từng app: `./scripts/deploy-release.sh 1.0.0 1.0.1 1.0.0`.
+Chạy thủ công: `./scripts/deploy-release.sh BACKEND_TAG AI_TAG WEB_TAG` với các
+tag đã kiểm tra từ `python3 scripts/release_images.py`.
 
 Script kiểm tra manifest đủ 12 image app rồi pull trước khi đổi container. Thiếu
 version, lỗi auth/network hoặc pull lỗi thì dừng, không tự đổi sang version khác.
