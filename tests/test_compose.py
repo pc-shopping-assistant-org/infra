@@ -125,6 +125,10 @@ class ComposeContracts(unittest.TestCase):
         self.assertEqual(seed["restart"], "no")
         self.assertTrue(seed["healthcheck"]["disable"])
         self.assertNotIn("JWT_PRIVATE_KEY", seed["environment"])
+        self.assertEqual(
+            seed["environment"]["SEED_FILES"],
+            "/seed/catalog_seed.json,/seed/pc_catalog_seed.json,/seed/gear_catalog_seed.json",
+        )
 
     def test_s3_client_credentials_only_reach_seed_and_media(self):
         services = self.config("*")["services"]

@@ -165,8 +165,9 @@ Sau khi dependencies chạy:
    public. Cấu hình DNS/Caddy cho domain object theo mục 6.
 3. Điền `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` vào
    `.env.docker`. Giữ endpoint nội bộ `http://seaweedfs:8333`.
-4. Chạy seed lần đầu thủ công trước release. Bộ seed có 8.502 ảnh nguồn nên lần
-   đầu có thể lâu hơn timeout deploy CI. Image catalog phải chứa seed Java mới.
+4. Chạy seed lần đầu thủ công trước release. Bộ seed đầy đủ có 14.600 file nguồn
+   và 17.237 gallery records nên lần đầu có thể lâu hơn timeout deploy CI.
+   Image catalog phải chứa seed Java mới.
 
 ```sh
 # Sửa ba tag trong release.toml theo image đã publish.
@@ -179,8 +180,9 @@ Sau khi dependencies chạy:
 ```
 
 Setup kiểm tra image version trên registry, pull, dựng dependencies, gọi `seed-prod`
-để migrate identity/media/catalog, thêm taxonomy và dữ liệu catalog còn thiếu,
-rồi chạy backend, migrate AI và chạy AI/FE. Seed chỉ INSERT; bản ghi đã tồn tại,
+để migrate identity/media/catalog và seed ba dataset (linh kiện, PC dựng sẵn,
+gear) theo ID ổn định. Sau đó chạy backend, migrate AI và chạy AI/FE.
+Seed chỉ INSERT; bản ghi đã tồn tại,
 UUID, tồn kho và trạng thái được giữ nguyên. Ảnh còn thiếu được tải từ URL nguồn
 lên S3 trước khi ghi metadata và liên kết catalog. Object đã upload được dùng lại
 khi retry; lỗi seed không được coi là hoàn tất. `SEED_IMAGE_WORKERS` mặc định 8.

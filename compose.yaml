@@ -302,6 +302,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
       SEED_IMAGE_WORKERS: ${SEED_IMAGE_WORKERS:-8}
+      # Merge the canonical component, prebuilt-PC and gear datasets by stable IDs.
+      SEED_FILES: ${SEED_FILES:-/seed/catalog_seed.json,/seed/pc_catalog_seed.json,/seed/gear_catalog_seed.json}
     command: ["--seed-prod"]
     healthcheck:
       disable: true
