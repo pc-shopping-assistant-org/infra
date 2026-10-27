@@ -7,7 +7,6 @@ GHCR qua profile `apps`. Caddy global vẫn do server quản lý.
 compose.yaml / compose.sh     Cấu hình duy nhất và lệnh chạy
 .env.docker.example          Mẫu global env; file thật .env.docker nằm ngoài Git
 config/                     PostgreSQL, Debezium, Grafana
-env/                        Env mẫu cho application chạy local
 scripts/                    Bootstrap apps, đăng ký CDC, deploy release
 tests/                      Kiểm tra offline cấu hình và release
 .github/workflows/          CI/CD nhánh release
@@ -91,11 +90,11 @@ ssh -N -o ExitOnForwardFailure=yes \
 Dừng infra local chiếm port trước, không xóa volume. Kafka advertised host mặc định
 là `127.0.0.1:29092`: giữ đúng port local này, không chỉ đổi bootstrap port.
 
-- BE: copy `env/backend.env.example` thành `env/backend.env`, điền credentials
-  server, import vào IDE/process. Bash/zsh:
-  `set -a; source /path/to/infra/env/backend.env; set +a`. Spring không tự đọc env
-  file. Giữ SMTP/Cloudinary/payment settings riêng hiện có.
-- AI: merge `env/ai.env.example` vào `.env` local, giữ provider/catalog mapping.
+- BE: dùng `backend/.env.example` trong repo application, điền host/port tunnel
+  và credentials server rồi import vào IDE/process. Spring không tự đọc env file.
+  Giữ SMTP/storage/payment settings riêng hiện có.
+- AI: dùng `ai-service/.env.example` trong repo application, điền URL database
+  qua tunnel vào `.env` local và giữ provider/catalog mapping.
   FE vẫn gọi BE/AI local. Eureka, business services và sync đều chạy local.
 - Không bật `apps` trên server khi dùng mô hình này; không trộn nhiều worker
   khác phiên bản trên cùng DB/topics/index. Không chạy integration test xóa dữ liệu
