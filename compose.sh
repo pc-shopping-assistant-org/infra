@@ -2,5 +2,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 args=(--env-file .env.docker)
-if [[ -f .release.env ]]; then args+=(--env-file .release.env); fi
+if [[ -f release.toml ]]; then
+  while IFS='=' read -r key value; do export "$key=$value"; done < <(python3 scripts/release_images.py release.toml)
+fi
 exec docker compose "${args[@]}" "$@"

@@ -29,9 +29,7 @@ class ReleaseDelivery(unittest.TestCase):
         shutil.copy(ROOT / "scripts/release_images.py", self.root / "scripts/release_images.py")
         shutil.copy(ROOT / "compose.sh", self.root / "compose.sh")
         (self.root / ".env.docker").write_text("POSTGRES_PASSWORD=server-secret\n")
-        (self.root / ".release.env").write_text(
-            "BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.0\nWEB_IMAGE_TAG=1.0.0\n"
-        )
+        (self.root / "release.toml").write_text("[images]\nbackend='1.0.0'\nai='1.0.0'\nweb='1.0.0'\n")
         (self.root / "bin").mkdir()
         (self.root / "compose-config.json").write_text(json.dumps({"services": {
             name: {"image": f"ghcr.io/pc-shopping-assistant-org/{name}:1.0.0"}
@@ -63,9 +61,9 @@ exit 0
         if tags:
             values = (tags[0], tags[1] if len(tags) > 1 else tags[0],
                       tags[2] if len(tags) > 2 else tags[0])
-            (self.root / ".release.env").write_text(
-                "".join(f"{key}={value}\n" for key, value in zip(
-                    ("BACKEND_IMAGE_TAG", "AI_IMAGE_TAG", "WEB_IMAGE_TAG"), values
+            (self.root / "release.toml").write_text(
+                "[images]\n" + "".join(f"{key}='{value}'\n" for key, value in zip(
+                    ("backend", "ai", "web"), values
                 ))
             )
         command = ["bash", str(self.root / "scripts/deploy-release.sh")]
@@ -88,7 +86,7 @@ exit 0
     def test_workflow_can_run_script_under_existing_server_lock(self):
         result = self.release(locked=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("WEB_IMAGE_TAG=1.0.0", (self.root / ".release.env").read_text())
+        self.assertIn("web='1.0.0'", (self.root / "release.toml").read_text())
 
     def test_file_versions_deploy_all_groups_without_rewriting_configuration(self):
         result = self.release(VERSION)
@@ -98,14 +96,12 @@ exit 0
             self.assertIn(service, calls)
         self.assertNotIn(" down", calls)
         self.assertEqual((self.root / ".env.docker").read_text(), "POSTGRES_PASSWORD=server-secret\n")
-        self.assertEqual((self.root / ".release.env").read_text(),
-                         "BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.0\nWEB_IMAGE_TAG=1.0.0\n")
+        self.assertIn("backend='1.0.0'", (self.root / "release.toml").read_text())
 
     def test_independent_versions_and_prerelease_are_preserved(self):
         result = self.release("1.0.1", "1.1.0-rc.1", TAG)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.root / ".release.env").read_text(),
-                         f"BACKEND_IMAGE_TAG=1.0.1\nAI_IMAGE_TAG=1.1.0-rc.1\nWEB_IMAGE_TAG={TAG}\n")
+        self.assertIn("ai='1.1.0-rc.1'", (self.root / "release.toml").read_text())
 
     def test_dependencies_seed_and_ai_migration_precede_application_restart(self):
         result = self.release(TAG, TAG, TAG)
@@ -122,7 +118,7 @@ exit 0
         self.assertLess(migrate, apps)
         self.assertNotIn("--profile apps", calls[dependencies])
         self.assertNotIn("ai-migrate", calls[apps])
-        self.assertIn(f"BACKEND_IMAGE_TAG={TAG}", (self.root / ".release.env").read_text())
+        self.assertIn(f"backend='{TAG}'", (self.root / "release.toml").read_text())
 
     def test_failure_preserves_selected_versions_and_stops_deployment(self):
         for failure in ("manifest", "pull", "catalog-seed", "ai-migrate", "--no-deps --wait"):
@@ -130,8 +126,7 @@ exit 0
                 (self.root / "calls").unlink(missing_ok=True)
                 result = self.release(VERSION, fail_on=failure)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertEqual((self.root / ".release.env").read_text(),
-                                 "BACKEND_IMAGE_TAG=1.0.0\nAI_IMAGE_TAG=1.0.0\nWEB_IMAGE_TAG=1.0.0\n")
+                self.assertIn("backend='1.0.0'", (self.root / "release.toml").read_text())
                 if failure != "--no-deps --wait":
                     self.assertNotIn("up -d --no-deps", (self.root / "calls").read_text())
                 self.assertNotIn("image rm", (self.root / "calls").read_text())
@@ -170,7 +165,7 @@ exit 0
     def test_image_in_use_elsewhere_does_not_fail_successful_deploy(self):
         result = self.release(VERSION, fail_on="image rm")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("BACKEND_IMAGE_TAG=1.0.0", (self.root / ".release.env").read_text())
+        self.assertIn("backend='1.0.0'", (self.root / "release.toml").read_text())
 
     def test_invalid_tag_is_rejected_before_docker_runs(self):
         for tags in (("release",), ("latest",), ("v1.0.0",), ("01.0.0",),
@@ -180,7 +175,7 @@ exit 0
         self.assertFalse((self.root / "calls").exists())
 
     def test_missing_release_file_is_rejected_before_docker_runs(self):
-        (self.root / ".release.env").unlink()
+        (self.root / "release.toml").unlink()
         self.assertNotEqual(self.release().returncode, 0)
         self.assertFalse((self.root / "calls").exists())
 
@@ -190,7 +185,7 @@ exit 0
             text=True, capture_output=True,
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Set image versions in .release.env", result.stderr)
+        self.assertIn("Set image versions in release.toml", result.stderr)
         self.assertFalse((self.root / "calls").exists())
 
     def test_compose_wrapper_always_loads_global_env_then_release_tags(self):
@@ -202,7 +197,7 @@ exit 0
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / "calls").read_text().strip(),
-                         "compose --env-file .env.docker --env-file .release.env config --quiet")
+                         "compose --env-file .env.docker config --quiet")
 
 
 if __name__ == "__main__":

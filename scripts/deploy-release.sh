@@ -3,7 +3,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-[[ $# -eq 0 ]] || { echo 'Set image versions in .release.env, then run deploy-release.sh without arguments' >&2; exit 2; }
+[[ $# -eq 0 ]] || { echo 'Set image versions in release.toml, then run deploy-release.sh without arguments' >&2; exit 2; }
 [[ -f .env.docker ]] || { echo 'Missing infra/.env.docker' >&2; exit 2; }
 # The SSH workflow holds the same lock while installing configuration.
 if [[ "${DEPLOY_LOCK_HELD:-0}" != 1 ]]; then
@@ -12,11 +12,11 @@ if [[ "${DEPLOY_LOCK_HELD:-0}" != 1 ]]; then
 fi
 
 # Validated file values override ambient shell variables and .env.docker defaults.
-pins=$(python3 scripts/release_images.py)
+pins=$(python3 scripts/release_images.py release.toml)
 while IFS='=' read -r key value; do
   export "$key=$value"
 done <<< "$pins"
-base=(docker compose --env-file .env.docker --env-file .release.env)
+base=(docker compose --env-file .env.docker)
 apps=("${base[@]}" --profile apps)
 wait_seconds=${DEPLOY_WAIT_SECONDS:-300}
 backend_services=(discovery-server identity-service catalog-service order-service payment-service promotion-service search-service media-service sync-service api-gateway)

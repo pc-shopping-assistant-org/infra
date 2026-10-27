@@ -25,7 +25,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -v
           bash -n compose.sh scripts/deploy.sh scripts/seed-prod.sh scripts/deploy-release.sh config/postgres/init-databases.sh
-          python3 scripts/release_images.py .release.env.example
+          python3 scripts/release_images.py release.toml
 
   deploy:
     needs: verify
@@ -90,8 +90,8 @@ jobs:
           exec 9>"$root/.deploy.lock"
           flock -w 600 9
           test -f "$root/.env.docker"
-          python3 "$stage/scripts/release_images.py" "$root/.release.env"
-          docker compose --env-file "$root/.env.docker" --env-file "$root/.release.env" -f "$stage/compose.yaml" --profile apps config --quiet
+          python3 "$stage/scripts/release_images.py" "$stage/release.toml"
+          docker compose --env-file "$root/.env.docker" -f "$stage/compose.yaml" --profile apps config --quiet
           cp -a "$stage/." "$root/"
           cd -- "$root"
           DEPLOY_LOCK_HELD=1 bash scripts/deploy-release.sh
