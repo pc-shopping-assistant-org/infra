@@ -50,6 +50,14 @@ def render(profile=None, overrides=None):
 
 
 class ComposeContracts(unittest.TestCase):
+    def test_ai_request_timeout_uses_the_global_runtime_configuration(self):
+        for expected, overrides in (("60", {}), ("90", {"AI_REQUEST_TIMEOUT_SECONDS": "90"})):
+            with self.subTest(timeout=expected):
+                result = render("apps", overrides)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(services["ai-service"]["environment"]["AI_REQUEST_TIMEOUT_SECONDS"], expected)
+
     def test_repository_has_one_compose_entrypoint(self):
         self.assertEqual(sorted(ROOT.rglob("compose.yaml")), [ROOT / "compose.yaml"])
 
