@@ -1,5 +1,5 @@
 # Public deployment selection. Application repositories publish these tags to GHCR.
 [images]
 backend = "1.0.1"
-ai = "1.0.3"
+ai = "1.0.5"
 web = "1.0.2"
