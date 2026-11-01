@@ -192,6 +192,13 @@ khởi động web/Kafka listeners của catalog. Infra release chạy lại see
 restart services; khi dữ liệu đã đủ, seed bỏ qua các hàng và ảnh đã có. AI đọc
 `hardwareType` từ catalog, không cần category UUID trong env.
 
+Để test AI với hàng còn tồn kho: `./scripts/seed-demo-stock.sh` (PostgreSQL đã chạy,
+image catalog đã build bản có `--seed-demo-stock`). Lệnh riêng này bật brand/category/
+product chưa bị xóa và đặt mỗi SKU hợp lệ thành `ACTIVE`, số lượng **10**; không đổi
+giá, ảnh hoặc khôi phục bản ghi đã xóa. Chạy lại vẫn là 10, không cộng thêm 10. Không
+được tự chạy khi deploy vì sẽ ghi đè tồn kho thật. Seed production vẫn chỉ INSERT.
+Sau đó CDC đồng bộ search; nếu CDC chưa chạy, rebuild bằng API sync sản phẩm.
+
 Không build source trên server. AI image chứa migrations; `ai-migrate` phải thành
 công trước AI. Các image phải được publish từ nhánh release của từng app trước
 khi chạy infra release.
