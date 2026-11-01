@@ -195,8 +195,10 @@ class ComposeContracts(unittest.TestCase):
             self.assertEqual(env["EUREKA_CLIENT_SERVICEURL_DEFAULTZONE"], "http://discovery-server:8761/eureka/")
             self.assertEqual(env["JWT_JWKS_URI"], "http://identity-service:8081/.well-known/jwks.json")
         self.assertEqual(services["sync-service"]["environment"]["SPRING_KAFKA_BOOTSTRAP_SERVERS"], "kafka:9092")
+        self.assertEqual(services["search-service"]["environment"]["SPRING_DATA_REDIS_HOST"], "redis")
         self.assertEqual(services["web-frontend"]["environment"]["BACKEND_API_URL"], "http://api-gateway:8080")
         self.assertEqual(services["ai-service"]["environment"]["AI_BACKEND_API_URL"], "http://catalog-service:8082")
+        self.assertEqual(services["ai-service"]["environment"]["AI_SEARCH_API_URL"], "http://search-service:8086")
 
     def test_identity_has_explicit_signing_keys_and_ai_waits_for_migration(self):
         services = self.config("apps")["services"]
