@@ -40,7 +40,7 @@ x-search-env: &search-env
   SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
   SPRING_ELASTICSEARCH_USERNAME: elastic
   SPRING_ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD}
-  EMBEDDING_API_URL: ${EMBEDDING_API_URL:-}
+  EMBEDDING_API_URL: ${EMBEDDING_API_URL:-http://ai-service:8000/api/v1/embeddings}
   EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
 
@@ -72,6 +72,9 @@ x-ai-env: &ai-env
   AI_QWEN_BASE_URL: ${AI_QWEN_BASE_URL:-http://model-server:8001/v1}
   AI_QWEN_MODEL_NAME: ${AI_QWEN_MODEL_NAME:-Qwen/Qwen3-8B}
   AI_QWEN_API_KEY: ${AI_QWEN_API_KEY:-}
+  AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-BAAI/bge-m3}
+  AI_EMBEDDING_CACHE_DIR: ${AI_EMBEDDING_CACHE_DIR:-/var/cache/ai-service/huggingface}
+  AI_EMBEDDING_PRELOAD_ON_STARTUP: ${AI_EMBEDDING_PRELOAD_ON_STARTUP:-true}
 
 services:
   postgres:
@@ -470,6 +473,8 @@ services:
       identity-service:
         condition: service_started
     environment: *ai-env
+    volumes:
+      - ai-model-cache:/var/cache/ai-service/huggingface
 
   web-frontend:
     <<: *app
@@ -501,3 +506,5 @@ volumes:
     name: ${LGTM_VOLUME_NAME:-pcshop-infra-lgtm}
   seaweedfs-data:
     name: ${SEAWEEDFS_VOLUME_NAME:-pcshop-infra-seaweedfs}
+  ai-model-cache:
+    name: ${AI_MODEL_CACHE_VOLUME_NAME:-pcshop-infra-ai-models}

@@ -199,6 +199,26 @@ class ComposeContracts(unittest.TestCase):
         self.assertEqual(services["web-frontend"]["environment"]["BACKEND_API_URL"], "http://api-gateway:8080")
         self.assertEqual(services["ai-service"]["environment"]["AI_BACKEND_API_URL"], "http://catalog-service:8082")
         self.assertEqual(services["ai-service"]["environment"]["AI_SEARCH_API_URL"], "http://search-service:8086")
+        self.assertEqual(
+            services["search-service"]["environment"]["EMBEDDING_API_URL"],
+            "http://ai-service:8000/api/v1/embeddings",
+        )
+        self.assertEqual(
+            services["sync-service"]["environment"]["EMBEDDING_API_URL"],
+            "http://ai-service:8000/api/v1/embeddings",
+        )
+        self.assertEqual(
+            services["ai-service"]["environment"]["AI_EMBEDDING_CACHE_DIR"],
+            "/var/cache/ai-service/huggingface",
+        )
+        self.assertEqual(
+            services["ai-service"]["environment"]["AI_EMBEDDING_PRELOAD_ON_STARTUP"],
+            "true",
+        )
+        ai_volume = services["ai-service"]["volumes"][0]
+        self.assertEqual(ai_volume["type"], "volume")
+        self.assertEqual(ai_volume["source"], "ai-model-cache")
+        self.assertEqual(ai_volume["target"], "/var/cache/ai-service/huggingface")
 
     def test_identity_has_explicit_signing_keys_and_ai_waits_for_migration(self):
         services = self.config("apps")["services"]
