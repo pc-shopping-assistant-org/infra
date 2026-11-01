@@ -40,6 +40,9 @@ x-search-env: &search-env
   SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
   SPRING_ELASTICSEARCH_USERNAME: elastic
   SPRING_ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD}
+  EMBEDDING_API_URL: ${EMBEDDING_API_URL:-}
+  EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
 
 x-s3-env: &s3-env
   S3_ENDPOINT: ${S3_ENDPOINT:-http://seaweedfs:8333}
@@ -52,6 +55,9 @@ x-s3-env: &s3-env
 x-ai-env: &ai-env
   AI_DATABASE_URL: ${AI_DATABASE_URL:-}
   AI_BACKEND_API_URL: ${AI_BACKEND_API_URL:-http://catalog-service:8082}
+  AI_SEARCH_API_URL: ${AI_SEARCH_API_URL:-http://search-service:8086}
+  AI_GEMINI_MAX_OUTPUT_TOKENS: ${AI_GEMINI_MAX_OUTPUT_TOKENS:-}
+  AI_GEMINI_REASONING_EFFORT: ${AI_GEMINI_REASONING_EFFORT:-}
   AI_JWT_JWKS_URL: http://identity-service:8081/.well-known/jwks.json
   AI_JWT_ISSUER: ${JWT_ISSUER:-http://identity-service}
   AI_JWT_AUDIENCE: pc-shopping-api
@@ -384,8 +390,10 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      <<: [*db-env, *search-env]
+      <<: [*db-env, *search-env, *redis-env]
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/search_db
       SERVER_PORT: "8086"
 
