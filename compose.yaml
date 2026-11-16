@@ -18,6 +18,7 @@ x-java-env: &java-env
   JWT_JWKS_URI: http://identity-service:8081/.well-known/jwks.json
   JWT_SECURITY_ISSUER: ${JWT_ISSUER:-http://identity-service}
   OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+  JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:+UseCompactObjectHeaders -XX:+UseStringDeduplication -XX:InitialRAMPercentage=20.0 -XX:MaxRAMPercentage=65.0 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=64m -XX:G1PeriodicGCInterval=60000 -Xss256k}
 
 x-db-env: &db-env
   <<: *java-env
@@ -80,6 +81,7 @@ services:
   postgres:
     <<: *service
     image: postgres:18.3-alpine
+    mem_limit: ${POSTGRES_MEM_LIMIT:-512m}
     command: [postgres, -c, wal_level=logical]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -99,6 +101,7 @@ services:
   redis:
     <<: *service
     image: redis:7-alpine
+    mem_limit: ${REDIS_MEM_LIMIT:-128m}
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
     command: [/bin/sh, -ec, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
@@ -115,6 +118,7 @@ services:
   rabbitmq:
     <<: *service
     image: rabbitmq:4.3.6-management-alpine
+    mem_limit: ${RABBITMQ_MEM_LIMIT:-256m}
     hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pcshop}
@@ -133,7 +137,9 @@ services:
   kafka:
     <<: *service
     image: apache/kafka:4.3.1
+    mem_limit: ${KAFKA_MEM_LIMIT:-640m}
     environment:
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms256m -Xmx384m}
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:-fBTMcTq2Rx--FtWWppGltw}
       KAFKA_NODE_ID: "1"
       KAFKA_PROCESS_ROLES: controller,broker
@@ -167,13 +173,14 @@ services:
   elasticsearch:
     <<: *service
     image: docker.elastic.co/elasticsearch/elasticsearch:9.4.5
+    mem_limit: ${ELASTICSEARCH_MEM_LIMIT:-768m}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "true"
       xpack.security.http.ssl.enabled: "false"
       xpack.security.transport.ssl.enabled: "false"
       ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Set ELASTIC_PASSWORD}
-      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms256m -Xmx512m}
     ports:
       - "${INFRA_BIND_ADDRESS:-127.0.0.1}:9200:9200"
     volumes:
@@ -187,6 +194,7 @@ services:
   seaweedfs:
     <<: *service
     image: chrislusf/seaweedfs:4.48
+    mem_limit: ${SEAWEEDFS_MEM_LIMIT:-256m}
     command: [mini, -dir=/data, -admin.port=12646]
     environment:
       WEED_ADMIN_USER: ${SEAWEEDFS_ADMIN_USER:-admin}
@@ -200,12 +208,14 @@ services:
   kafka-connect:
     <<: *service
     image: quay.io/debezium/connect:3.0
+    mem_limit: ${KAFKA_CONNECT_MEM_LIMIT:-512m}
     depends_on:
       kafka:
         condition: service_healthy
       postgres:
         condition: service_healthy
     environment:
+      HEAP_OPTS: ${KAFKA_CONNECT_HEAP_OPTS:--Xms128m -Xmx320m}
       BOOTSTRAP_SERVERS: kafka:9092
       GROUP_ID: pcshop-connect
       CONFIG_STORAGE_TOPIC: pcshop_connect_configs
@@ -220,12 +230,14 @@ services:
   kafka-ui:
     <<: *service
     image: ghcr.io/kafbat/kafka-ui:v1.5.0
+    mem_limit: ${KAFKA_UI_MEM_LIMIT:-256m}
     depends_on:
       kafka:
         condition: service_healthy
       kafka-connect:
         condition: service_started
     environment:
+      JAVA_OPTS: ${KAFKA_UI_JAVA_OPTS:--Xms64m -Xmx160m}
       KAFKA_CLUSTERS_0_NAME: gearpc
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: catalog-cdc
@@ -254,6 +266,7 @@ services:
   lgtm:
     <<: *service
     image: grafana/otel-lgtm:0.35.0
+    mem_limit: ${LGTM_MEM_LIMIT:-768m}
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -269,12 +282,15 @@ services:
   discovery-server:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-discovery-server:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${DISCOVERY_MEM_LIMIT:-384m}
     environment:
       SERVER_PORT: "8761"
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:+UseCompactObjectHeaders -XX:+UseStringDeduplication -XX:InitialRAMPercentage=20.0 -XX:MaxRAMPercentage=65.0 -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=64m -XX:G1PeriodicGCInterval=60000 -Xss256k}
 
   identity-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-identity-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${IDENTITY_MEM_LIMIT:-512m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -321,6 +337,7 @@ services:
   catalog-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-catalog-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${CATALOG_MEM_LIMIT:-512m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -338,6 +355,7 @@ services:
   order-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-order-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${ORDER_MEM_LIMIT:-512m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -355,6 +373,7 @@ services:
   payment-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-payment-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${PAYMENT_MEM_LIMIT:-384m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -373,6 +392,7 @@ services:
   promotion-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-promotion-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${PROMOTION_MEM_LIMIT:-384m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -386,6 +406,7 @@ services:
   search-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-search-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${SEARCH_MEM_LIMIT:-512m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -403,6 +424,7 @@ services:
   media-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-media-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${MEDIA_MEM_LIMIT:-384m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -420,6 +442,7 @@ services:
   sync-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-sync-service:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${SYNC_MEM_LIMIT:-512m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -436,6 +459,7 @@ services:
   api-gateway:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/backend-api-gateway:${BACKEND_IMAGE_TAG:-release}
+    mem_limit: ${GATEWAY_MEM_LIMIT:-512m}
     depends_on:
       discovery-server:
         condition: service_started
@@ -453,6 +477,7 @@ services:
   ai-migrate:
     profiles: [apps]
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/ai-service:${AI_IMAGE_TAG:-release}
+    mem_limit: ${AI_MIGRATE_MEM_LIMIT:-1024m}
     restart: "no"
     depends_on:
       postgres:
@@ -465,6 +490,7 @@ services:
   ai-service:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/ai-service:${AI_IMAGE_TAG:-release}
+    mem_limit: ${AI_MEM_LIMIT:-2560m}
     depends_on:
       ai-migrate:
         condition: service_completed_successfully
@@ -479,6 +505,7 @@ services:
   web-frontend:
     <<: *app
     image: ghcr.io/${GHCR_OWNER:-pc-shopping-assistant-org}/web-frontend:${WEB_IMAGE_TAG:-release}
+    mem_limit: ${WEB_MEM_LIMIT:-512m}
     depends_on: [api-gateway, ai-service]
     environment:
       BACKEND_API_URL: ${BACKEND_API_URL:-http://api-gateway:8080}
