@@ -64,15 +64,56 @@
       }
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "table",
-      "title": "AI Step Summary (clean table view)",
-      "description": "Completed/failed steps formatted as a table. Click a trace_id to open its Tempo waterfall.",
-      "gridPos": {"x": 0, "y": 7, "w": 24, "h": 11},
+      "title": "Recent Errors Only (AI Service)",
+      "description": "Filtered view of FAILED steps and unhandled exceptions for instant debugging.",
+      "gridPos": {"x": 0, "y": 7, "w": 24, "h": 6},
       "datasource": {"type": "loki", "uid": "loki"},
       "targets": [{
         "refId": "A",
-        "expr": "{service_name=\"ai-service\"} | event=~\"step.finished|http.request.finished|http.unhandled_exception\" | trace_id=~\"${trace_id:raw}\" | detected_level=~\"$level\" |~ \"(?i)${search:raw}\"",
+        "expr": "{service_name=\"ai-service\"} | (detected_level=~\"error|fatal\" or outcome=\"FAILED\") | trace_id=~\"${trace_id:raw}\" |~ \"(?i)${search:raw}\"",
+        "queryType": "range"
+      }],
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {"source": "labels", "format": "auto", "replace": false}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Line": true, "id": true, "labels": true, "tsNs": true,
+              "service_name": true, "detected_level": true, "severity_text": true,
+              "severity_number": true, "scope_name": true, "observed_timestamp": true,
+              "event": true, "span_id": true, "run_id": true, "conversation_id": true,
+              "execution_id": true, "generation": true, "code_filepath": true,
+              "code_function": true, "code_lineno": true, "outcome": true
+            },
+            "indexByName": {
+              "Time": 0, "step": 1, "error_type": 2, "error_location": 3,
+              "duration_ms": 4, "trace_id": 5
+            },
+            "renameByName": {
+              "step": "Step", "error_type": "Error", "error_location": "Location",
+              "duration_ms": "Duration (ms)", "trace_id": "Trace ID"
+            }
+          }
+        }
+      ],
+      "options": {"showHeader": true, "sortBy": [{"displayName": "Time", "desc": true}]}
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "AI Step Summary (noise-free table view)",
+      "description": "Completed/failed steps formatted as a table (excludes 202 polling noise). Click a trace_id to open its Tempo waterfall.",
+      "gridPos": {"x": 0, "y": 13, "w": 24, "h": 11},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{
+        "refId": "A",
+        "expr": "{service_name=\"ai-service\"} | event=~\"step.finished|http.request.finished|http.unhandled_exception\" !~ \"/runs/.*/result status=202\" | trace_id=~\"${trace_id:raw}\" | detected_level=~\"$level\" |~ \"(?i)${search:raw}\"",
         "queryType": "range"
       }],
       "transformations": [
@@ -186,13 +227,13 @@
     {
       "id": 1,
       "type": "logs",
-      "title": "Detailed Logs (click a line to inspect metadata)",
-      "description": "Clean 1-line formatted logs without noisy label pills. Filter by Trace ID, Level, or Search above.",
-      "gridPos": {"x": 0, "y": 18, "w": 24, "h": 12},
+      "title": "Detailed Logs (noise-filtered, 1-line format)",
+      "description": "Excludes noisy step.started and 202 /result polling. Click any line to expand full metadata.",
+      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 12},
       "datasource": {"type": "loki", "uid": "loki"},
       "targets": [{
         "refId": "A",
-        "expr": "{service_name=\"ai-service\"} | trace_id=~\"${trace_id:raw}\" | detected_level=~\"$level\" |~ \"(?i)${search:raw}\" | line_format \"{{if .trace_id}}[{{printf \\\"%.8s\\\" .trace_id}}] {{end}}{{if .step}}[{{.step}}] {{end}}{{if .outcome}}{{.outcome}} {{end}}{{if .duration_ms}}({{.duration_ms}}ms) {{end}}{{if .error_type}}ERR={{.error_type}}{{if .error_location}} @{{.error_location}}{{end}} — {{end}}{{__line__}}\"",
+        "expr": "{service_name=\"ai-service\"} | event!=\"step.started\" !~ \"/runs/.*/result status=202\" | trace_id=~\"${trace_id:raw}\" | detected_level=~\"$level\" |~ \"(?i)${search:raw}\" | line_format \"{{if .trace_id}}[{{printf \\\"%.8s\\\" .trace_id}}] {{end}}{{if .step}}[{{.step}}] {{end}}{{if .outcome}}{{.outcome}} {{end}}{{if .duration_ms}}({{.duration_ms}}ms) {{end}}{{if .error_type}}ERR={{.error_type}}{{if .error_location}} @{{.error_location}}{{end}} — {{end}}{{__line__}}\"",
         "queryType": "range"
       }],
       "options": {
@@ -201,7 +242,7 @@
         "showCommonLabels": false,
         "sortOrder": "Descending",
         "wrapLogMessage": true,
-        "prettifyLogMessage": true,
+        "prettifyLogMessage": false,
         "enableLogDetails": true,
         "dedupStrategy": "none"
       }
@@ -210,7 +251,7 @@
       "id": 2,
       "type": "table",
       "title": "AI execution traces (open a trace for step waterfall)",
-      "gridPos": {"x": 0, "y": 30, "w": 24, "h": 10},
+      "gridPos": {"x": 0, "y": 36, "w": 24, "h": 10},
       "datasource": {"type": "tempo", "uid": "tempo"},
       "targets": [{
         "refId": "A",
