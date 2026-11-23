@@ -18,7 +18,8 @@ VALID_SERVICES = {
     }},
     "ai-service": {"environment": {
         "AI_DATABASE_URL": "postgresql+psycopg://postgres:test@postgres:5432/ai_db",
-        "AI_PROVIDER": "openai", "AI_OPENAI_API_KEY": "test-key",
+        "AI_MODELS_CONFIG_PATH": "/etc/ai-service/models.yaml",
+        "AI_GEMINI_API_KEY": "test-key",
     }},
 }
 
@@ -36,11 +37,16 @@ class DeploymentPreflight(unittest.TestCase):
         services = copy.deepcopy(VALID_SERVICES)
         services["identity-service"]["environment"]["JWT_PRIVATE_KEY"] = ""
         services["ai-service"]["environment"].update({
-            "AI_HARDWARE_CATALOG_MAPPING": "{}", "AI_OPENAI_API_KEY": "",
+            "AI_HARDWARE_CATALOG_MAPPING": "{}", "AI_GEMINI_API_KEY": "",
         })
         errors = deploy.deployment_errors(services)
         self.assertEqual(len(errors), 2)
         self.assertNotIn("public-test-key", " ".join(errors))
+
+    def test_missing_models_config_path_is_rejected(self):
+        services = copy.deepcopy(VALID_SERVICES)
+        services["ai-service"]["environment"]["AI_MODELS_CONFIG_PATH"] = ""
+        self.assertEqual(len(deploy.deployment_errors(services)), 1)
 
     def test_localhost_database_url_is_rejected_for_container_deployment(self):
         services = copy.deepcopy(VALID_SERVICES)
@@ -51,7 +57,7 @@ class DeploymentPreflight(unittest.TestCase):
     def test_qwen_requires_a_real_endpoint_without_requiring_an_openai_key(self):
         services = copy.deepcopy(VALID_SERVICES)
         ai = services["ai-service"]["environment"]
-        ai.update({"AI_PROVIDER": "qwen", "AI_OPENAI_API_KEY": "", "AI_QWEN_BASE_URL": "http://model-server:8001/v1"})
+        ai.update({"AI_GEMINI_API_KEY": "", "AI_QWEN_BASE_URL": "http://model-server:8001/v1"})
         self.assertEqual(len(deploy.deployment_errors(services)), 1)
         ai["AI_QWEN_BASE_URL"] = "http://gpu.internal:8001/v1"
         self.assertEqual(deploy.deployment_errors(services), [])

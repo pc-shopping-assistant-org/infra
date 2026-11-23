@@ -57,22 +57,18 @@ x-ai-env: &ai-env
   AI_DATABASE_URL: ${AI_DATABASE_URL:-}
   AI_BACKEND_API_URL: ${AI_BACKEND_API_URL:-http://catalog-service:8082}
   AI_SEARCH_API_URL: ${AI_SEARCH_API_URL:-http://search-service:8086}
-  AI_GEMINI_MAX_OUTPUT_TOKENS: ${AI_GEMINI_MAX_OUTPUT_TOKENS:-}
-  AI_GEMINI_REASONING_EFFORT: ${AI_GEMINI_REASONING_EFFORT:-}
+  AI_MODELS_CONFIG_PATH: ${AI_MODELS_CONFIG_PATH:-/etc/ai-service/models.yaml}
   AI_JWT_JWKS_URL: http://identity-service:8081/.well-known/jwks.json
   AI_JWT_ISSUER: ${JWT_ISSUER:-http://identity-service}
   AI_JWT_AUDIENCE: pc-shopping-api
   AI_OTLP_ENDPOINT: http://lgtm:4318
   AI_RETRIEVAL_BACKEND: backend
   AI_HARDWARE_CATALOG_MAPPING: ${AI_HARDWARE_CATALOG_MAPPING:-}
-  AI_PROVIDER: ${AI_PROVIDER:-openai}
-  AI_MODEL_NAME: ${AI_MODEL_NAME:-}
   AI_REQUEST_TIMEOUT_SECONDS: ${AI_REQUEST_TIMEOUT_SECONDS:-60}
   AI_OPENAI_BASE_URL: ${AI_OPENAI_BASE_URL:-}
   AI_OPENAI_API_KEY: ${AI_OPENAI_API_KEY:-}
   AI_GEMINI_API_KEY: ${AI_GEMINI_API_KEY:-}
-  AI_QWEN_BASE_URL: ${AI_QWEN_BASE_URL:-http://model-server:8001/v1}
-  AI_QWEN_MODEL_NAME: ${AI_QWEN_MODEL_NAME:-Qwen/Qwen3-8B}
+  AI_QWEN_BASE_URL: ${AI_QWEN_BASE_URL:-}
   AI_QWEN_API_KEY: ${AI_QWEN_API_KEY:-}
   AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-BAAI/bge-m3}
   AI_EMBEDDING_CACHE_DIR: ${AI_EMBEDDING_CACHE_DIR:-/var/cache/ai-service/huggingface}
@@ -502,6 +498,7 @@ services:
     environment: *ai-env
     volumes:
       - ai-model-cache:/var/cache/ai-service/huggingface
+      - ./config/ai-models.yaml:/etc/ai-service/models.yaml:ro
 
   web-frontend:
     <<: *app

@@ -22,16 +22,19 @@ def deployment_errors(services):
     url = urlsplit(ai.get("AI_DATABASE_URL") or "")
     if url.scheme != "postgresql+psycopg" or url.hostname != "postgres" or url.path != "/ai_db":
         errors.append("Set AI_DATABASE_URL to postgresql+psycopg://...@postgres:5432/ai_db")
-    provider = ai["AI_PROVIDER"]
-    provider_keys = {"openai": "AI_OPENAI_API_KEY", "gemini": "AI_GEMINI_API_KEY"}
-    if provider in provider_keys:
-        if not ai.get(provider_keys[provider]):
-            errors.append(f"Set {provider_keys[provider]}")
-    elif provider == "qwen":
-        if not ai.get("AI_QWEN_BASE_URL") or "model-server" in ai["AI_QWEN_BASE_URL"]:
-            errors.append("Set AI_QWEN_BASE_URL to a reachable model endpoint")
-    else:
-        errors.append("AI_PROVIDER must be openai, gemini or qwen")
+    if not (ai.get("AI_MODELS_CONFIG_PATH") or "").strip():
+        errors.append("Set AI_MODELS_CONFIG_PATH to the YAML model configuration path")
+    has_provider_credential = any(
+        (ai.get(key) or "").strip()
+        for key in ("AI_GEMINI_API_KEY", "AI_OPENAI_API_KEY", "AI_OPENAI_BASE_URL", "AI_QWEN_BASE_URL")
+    )
+    if not has_provider_credential:
+        errors.append(
+            "Set at least one model provider credential or endpoint "
+            "(AI_GEMINI_API_KEY, AI_OPENAI_API_KEY, AI_OPENAI_BASE_URL, or AI_QWEN_BASE_URL)"
+        )
+    if (ai.get("AI_QWEN_BASE_URL") or "").strip() and "model-server" in ai["AI_QWEN_BASE_URL"]:
+        errors.append("Set AI_QWEN_BASE_URL to a reachable model endpoint")
     return errors
 
 
